@@ -151,6 +151,23 @@ last_modified =
     nil
   end
 
+# Versioned identifiers also index their bare form: ETSI
+# "GS QKD 014 V1.1.1 (2019-02)" <- "GS QKD 014"; NIST "800-53r5" <-
+# "800-53"; ITU "G.7710 (11/2025)" <- "G.7710". Same role as the 3GPP
+# release-suffix rule below.
+def bare_variants(docid)
+  variants = []
+  v = docid.sub(/\s*V\d+(?:\.\d+)*(?:\s*\((?:19|20)\d{2}(?:-\d{2})?\))?\z/, "")
+  variants << v if v != docid && !v.strip.empty?
+  r = docid.sub(/r\d+\z/i, "")
+  variants << r if r != docid && !r.strip.empty?
+  itu = docid.sub(/\s*\(\d{2}\/(?:19|20)\d{2}\)\z/, "")
+  variants << itu if itu != docid && !itu.strip.empty?
+  clean = docid.sub(/[:\s]+\z/, "")
+  variants << clean if clean != docid && !clean.empty?
+  variants.uniq
+end
+
 def extract_status(status)
   case status
   when String then status
@@ -281,6 +298,7 @@ files.each_with_index do |path, idx|
   year = primary["content"].to_s[/:(\d{4})(?=[^-]*$)/, 1] || published.to_s[0, 4]
 
   canonicals = pubid_canonicals(docid_list, options[:flavor])
+  canonicals.concat(bare_variants(primary["content"].to_s))
   # 3GPP ids carry release/series suffixes (":REL-19/19.0.0", ":UMTS/3.0.0");
   # index the bare form too so "3GPP TS 23.040" resolves to the latest release.
   bare_release = primary["content"].to_s.sub(/\A(3GPP [A-Z]{2} [\d.]+[A-Z]*)(?::[A-Z]+(?:-\d+)?\/.*)?\z/) { Regexp.last_match(1) }

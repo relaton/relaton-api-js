@@ -33,6 +33,9 @@ jobs:
           bundler-cache: false
       - name: Bundle install
         working-directory: tools
+        env:
+          RELATON_GEM: ${{ vars.RELATON_GEM }}
+          PUBID_GEM: ${{ vars.PUBID_GEM }}
         run: bundle install
       - name: Build chunks
         working-directory: tools

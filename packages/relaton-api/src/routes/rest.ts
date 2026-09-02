@@ -1,7 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../env";
 import { normalizeCode } from "pubid-ts";
-import { findDocument } from "../lib/lookup";
+import { findDocument, findFamily } from "../lib/lookup";
 
 const QuerySchema = z.object({
   code: z.string().min(1).openapi({ example: "ISO 19115-1" }),
@@ -42,6 +42,18 @@ const versionRoute = createRoute({
   },
 });
 
+function renderFamilyXml(family: { docid: string; title: string | null; members: { docid: string }[] }): string {
+  const esc = escapeXml;
+  const idType = family.docid.split(" ")[0] ?? "";
+  const relations = family.members
+    .map(
+      (m) =>
+        `  <relation type="includes">\n    <bibitem>\n      <docidentifier type="${esc(idType)}">${esc(m.docid)}</docidentifier>\n    </bibitem>\n  </relation>`,
+    )
+    .join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<bibdata type="standard" schema-version="v1.5.6">\n  <docidentifier type="${esc(idType)}" primary="true">${esc(family.docid)}</docidentifier>\n${family.title ? `  <title language="en" script="Latn" type="main">${esc(family.title)}</title>\n` : ""}${relations}\n</bibdata>`;
+}
+
 function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -57,11 +69,16 @@ restRoutes.openapi(documentRoute, async (c) => {
     return c.text("Bad request. Parameter 'code' is required.", 400);
   }
 
-  const row = await findDocument(c.env.DB, {
+  const lookup = {
     code: normalized,
     year: year && /^\d{4}$/.test(year) ? Number(year) : null,
     allParts,
-  });
+  };
+  if (allParts) {
+    const family = await findFamily(c.env.DB, normalized);
+    if (family) return c.body(renderFamilyXml(family), 200, { "Content-Type": "text/xml" });
+  }
+  const row = await findDocument(c.env.DB, lookup);
   if (!row) return c.text("Document not found.", 404);
 
   const obj = await c.env.BUCKET.get(row.r2_key);

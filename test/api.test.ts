@@ -75,9 +75,14 @@ describe("GET /api/v1/document", () => {
     expect(await res.text()).toContain("ISO 19115-1:2014");
   });
 
-  it("all_parts matches the family", async () => {
+  it("all_parts returns the family aggregate with includes relations", async () => {
     const res = await SELF.fetch("http://localhost/api/v1/document?code=ISO%2019115&all_parts=true");
     expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("ISO 19115 (all parts)");
+    expect(body).toContain('<relation type="includes">');
+    expect(body).toContain("ISO 19115-1:2018");
+    expect(body).toContain("ISO 19115-2:2019");
   });
 
   it("normalizes dashes, nbsp and scope wrappers", async () => {

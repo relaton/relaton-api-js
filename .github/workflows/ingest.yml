@@ -17,7 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         flavor:
-          [iso, 3gpp, adobe, bipm, easc, gost, iala, iana, ieee, iho, oiml, w3c]
+          [3gpp, adobe, bipm, calconnect, ccsds, cie, easc, ecma, etsi,
+           gost, iala, iana, iec, ieee, ietf, iho, iso, itu-r, itu, jcgm,
+           jis, nist, oasis, ogc, oiml, plateau, rfcs, rfcsubseries, w3c, xsf]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -27,6 +29,7 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           working-directory: tools
+          ruby-version: "3.4"
           bundler-cache: false
       - name: Bundle install
         working-directory: tools

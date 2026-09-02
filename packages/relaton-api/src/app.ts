@@ -49,5 +49,11 @@ export function createApp(configInput: unknown = {}) {
 
   app.notFound((c) => c.text("Resource doesn't exist.", 404));
 
+  // Surface the actual error so debugging doesn't require tail.
+  app.onError((err, c) => {
+    console.error(`Unhandled error on ${c.req.method} ${c.req.path}:`, err);
+    return c.text(`Internal server error: ${err.message}`, 500);
+  });
+
   return app;
 }

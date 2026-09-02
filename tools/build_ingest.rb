@@ -105,6 +105,23 @@ last_modified =
     nil
   end
 
+# Versioned identifiers also index their bare form: ETSI
+# "GS QKD 014 V1.1.1 (2019-02)" <- "GS QKD 014"; NIST "800-53r5" <-
+# "800-53"; ITU "G.7710 (11/2025)" <- "G.7710". Same role as the 3GPP
+# release-suffix rule below.
+def bare_variants(docid)
+  variants = []
+  v = docid.sub(/\s*V\d+(?:\.\d+)*(?:\s*\((?:19|20)\d{2}(?:-\d{2})?\))?\z/, "")
+  variants << v if v != docid && !v.strip.empty?
+  r = docid.sub(/r\d+\z/i, "")
+  variants << r if r != docid && !r.strip.empty?
+  itu = docid.sub(/\s*\(\d{2}\/(?:19|20)\d{2}\)\z/, "")
+  variants << itu if itu != docid && !itu.strip.empty?
+  clean = docid.sub(/[:\s]+\z/, "")
+  variants << clean if clean != docid && !clean.empty?
+  variants.uniq
+end
+
 def extract_status(status)
   case status
   when String then status
@@ -122,7 +139,12 @@ def xml_for(doc, text, processor, path)
     bib_hash = Relaton::Bib::HashParserV1.hash_to_bib(doc)
     Relaton::Bib::ItemData.new(**bib_hash).to_xml(bibdata: true)
   elsif processor
-    processor.from_yaml(text).to_xml(bibdata: true)
+    begin
+      processor.from_yaml(text).to_xml(bibdata: true)
+    rescue RuntimeError
+      require "relaton/bib/model/item"
+      Relaton::Bib::Item.from_yaml(text).to_xml(bibdata: true)
+    end
   else
     require "relaton/bib/model/item"
     Relaton::Bib::Item.from_yaml(text).to_xml(bibdata: true)
@@ -150,9 +172,23 @@ def ietf_xml_meta(text)
   }
 end
 
+def write_chunk(flavor:, repo:, rows:, out_dir:, index:, last_modified:, final:)
+  payload = {
+    flavor: flavor,
+    repo: repo,
+    final: final,
+    lastModified: last_modified,
+    relatonVersion: "data-repos",
+    rows: rows.map { |r| r.reject { |k, _| k == :xml } },
+    blobs: rows.each_with_object({}) { |r, h| h[r[:r2_key]] = r[:xml] },
+  }
+  File.binwrite(File.join(out_dir, format("chunk-%04d.json", index)), JSON.generate(payload))
+end
+
 rows = []
-blobs = {}
 errors = 0
+written = 0
+chunk_size = options[:chunk_size]
 
 files.each_with_index do |path, idx|
   rel = path.delete_prefix("#{options[:repo]}/")
@@ -192,6 +228,7 @@ files.each_with_index do |path, idx|
   year = primary["content"].to_s[/:(\d{4})(?=[^-]*$)/, 1] || published.to_s[0, 4]
 
   canonicals = pubid_canonicals(docid_list, options[:flavor])
+  canonicals.concat(bare_variants(primary["content"].to_s))
   # 3GPP ids carry release/series suffixes (":REL-19/19.0.0", ":UMTS/3.0.0");
   # index the bare form too so "3GPP TS 23.040" resolves to the latest release.
   bare_release = primary["content"].to_s.sub(/\A(3GPP [A-Z]{2} [\d.]+[A-Z]*)(?::[A-Z]+(?:-\d+)?\/.*)?\z/) { Regexp.last_match(1) }
@@ -217,27 +254,19 @@ files.each_with_index do |path, idx|
     docids: all_ids.map { |h| h.merge(norm: h[:norm].upcase.delete(" ")) }
                     .filter_map { |h| h[:norm].empty? ? nil : h }.uniq { |h| h[:norm] },
   }
-  blobs[r2_key] = xml
+  rows.last[:xml] = xml
 
   puts "#{idx + 1}/#{files.size} #{rel}" if ((idx + 1) % 1000).zero?
+
+  if rows.size == chunk_size
+    write_chunk(flavor: options[:flavor], repo: repo, rows: rows, out_dir: out_dir,
+                index: written, last_modified: last_modified, final: false)
+    written += 1
+    rows = []
+  end
 end
 
-chunk_size = options[:chunk_size]
-chunks = rows.each_slice(chunk_size).to_a
-chunks << [] if chunks.empty?
+write_chunk(flavor: options[:flavor], repo: repo, rows: rows, out_dir: out_dir,
+            index: written, last_modified: last_modified, final: true)
 
-chunks.each_with_index do |chunk_rows, i|
-  chunk_blobs = chunk_rows.each_with_object({}) { |r, h| h[r[:r2_key]] = blobs[r[:r2_key]] }
-  payload = {
-    flavor: options[:flavor],
-    repo: repo,
-    final: i == chunks.size - 1,
-    lastModified: last_modified,
-    relatonVersion: "data-repos",
-    rows: chunk_rows,
-    blobs: chunk_blobs,
-  }
-  File.binwrite(File.join(out_dir, format("chunk-%04d.json", i)), JSON.generate(payload))
-end
-
-puts "wrote #{chunks.size} chunk(s) to #{out_dir} (#{rows.size} docs, #{errors} skipped)"
+puts "wrote #{written + 1} chunk(s) to #{out_dir} (docs: #{written * chunk_size + rows.size}, #{errors} skipped)"

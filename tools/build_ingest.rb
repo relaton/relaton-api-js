@@ -182,11 +182,11 @@ files.each_with_index do |path, idx|
     next
   end
   titles = doc["title"] || []
-  main_title = titles.find { |t| t["type"] == "main" && t["language"] == "en" } ||
-               titles.find { |t| t["type"] == "main" } ||
+  main_title = titles.find { |t| t.is_a?(Hash) && t["type"] == "main" && t["language"] == "en" } ||
+               titles.find { |t| t.is_a?(Hash) && t["type"] == "main" } ||
                titles.first
-  published = (doc["date"] || []).find { |d| d["type"] == "published" }&.[]("at") ||
-              (doc["date"] || []).find { |d| d["type"] == "published" }&.[]("value")
+  published = (doc["date"] || []).find { |d| d.is_a?(Hash) && d["type"] == "published" }&.[]("at") ||
+              (doc["date"] || []).find { |d| d.is_a?(Hash) && d["type"] == "published" }&.[]("value")
 
   norm, undated_norm, allparts_norm = derive_keys(primary["content"].to_s, options[:flavor])
   year = primary["content"].to_s[/:(\d{4})(?=[^-]*$)/, 1] || published.to_s[0, 4]
@@ -197,8 +197,9 @@ files.each_with_index do |path, idx|
   bare_release = primary["content"].to_s.sub(/\A(3GPP [A-Z]{2} [\d.]+[A-Z]*)(?::[A-Z]+(?:-\d+)?\/.*)?\z/) { Regexp.last_match(1) }
   canonicals << bare_release if bare_release =~ /\A3GPP / && bare_release != primary["content"]
   all_ids = docid_list.map do |d|
+    next unless d.is_a?(Hash)
     { norm: d["content"].to_s.upcase.delete(" "), raw: d["content"], type: d["type"] }
-  end + canonicals.map do |c|
+  end.compact + canonicals.map do |c|
     { norm: c.upcase.delete(" "), raw: c, type: "canonical" }
   end
 

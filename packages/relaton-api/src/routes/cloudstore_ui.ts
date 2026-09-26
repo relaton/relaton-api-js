@@ -136,7 +136,7 @@ export async function renderCollectionPage(
   page: number,
 ): Promise<string | null> {
   const flavor = await db.prepare(
-    "SELECT flavor, doc_count, last_modified FROM flavors WHERE flavor = ?",
+    "SELECT flavor, doc_count, last_modified, ingested_at FROM flavors WHERE flavor = ?",
   ).bind(collection).first<FlavorRow>();
   if (!flavor) return null;
 

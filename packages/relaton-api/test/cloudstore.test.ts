@@ -29,8 +29,8 @@ function makeEnv(opts: {
           if (sql.includes("FROM documents")) {
             return {
               results: opts.docids.map((docid) => ({
-                r2_key: `ietf/${docid.toLowerCase()}`,
                 docid,
+                r2_key: `ietf/${docid.toLowerCase()}`,
               })),
             };
           }
@@ -69,22 +69,22 @@ describe("lutaml cloud store contract", () => {
     const env = makeEnv({ flavor: flavorRow, entry: null, docids: ["RFC 7231", "RFC 3986"] });
     const res = await app.request("/collections/ietf/manifest", {}, env as never);
     expect(res.status).toBe(200);
-    const manifest = (await res.json()) as { version: number; count: number; generated: string; entries: { key: string }[] };
+    const manifest = (await res.json()) as {
+      version: number;
+      count: number;
+      generated: string;
+      entries: { key: string; metadata?: Record<string, unknown> }[];
+    };
     expect(manifest.version).toBe(1);
     expect(manifest.count).toBe(2);
     expect(manifest.generated).toBe("2026-09-25T00:00:00Z");
-    expect(manifest.entries.map((e: { key: string }) => e.key)).toEqual([
-      "rfc 7231",
-      "rfc 3986",
-    ]);
-    expect(
-      (manifest.entries[1] as { metadata?: unknown }).metadata,
-    ).toEqual({ docid: "RFC 3986" });
+    expect(manifest.entries.map((e) => e.key)).toEqual(["rfc 7231", "rfc 3986"]);
+    expect(manifest.entries[1]?.metadata).toEqual({ docid: "RFC 3986" });
     expect(res.headers.get("cache-control")).toContain("max-age");
     expect(res.headers.get("etag")).toBeTruthy();
   });
 
-  it("serves an entry from R2 by docid", async () => {
+  it("serves an entry from R2 by storage key", async () => {
     const app = createApp({});
     const env = makeEnv({
       flavor: flavorRow,
@@ -105,7 +105,66 @@ describe("lutaml cloud store contract", () => {
     expect(res.status).toBe(404);
 
     const unknownEntry = makeEnv({ flavor: flavorRow, entry: null, docids: [] });
-    const noEntry = await app.request("/collections/ietf/entries/rfc%209999", {}, unknownEntry as never);
+    const noEntry = await app.request(
+      "/collections/ietf/entries/rfc%209999",
+      {},
+      unknownEntry as never,
+    );
     expect(noEntry.status).toBe(404);
+  });
+});
+
+describe("lutaml cloud store UI", () => {
+  const htmlEnv = makeEnv({
+    flavor: flavorRow,
+    entry: { docid: "RFC 7231", r2_key: "ietf/rfc7231" },
+    docids: ["RFC 3986", "RFC 7231"],
+    objects: { "ietf/rfc7231": "id: RFC7231\n" },
+  });
+
+  it("serves JSON to clients and a browsable page to browsers on /collections", async () => {
+    const app = createApp({});
+    const env = makeEnv({ flavor: flavorRow, entry: null, docids: ["RFC 7231"] });
+
+    const json = await app.request("/collections", {}, env as never);
+    expect(json.headers.get("content-type")).toContain("application/json");
+
+    const html = await app.request("/collections", {
+      headers: { Accept: "text/html" },
+    }, env as never);
+    expect(html.headers.get("content-type")).toContain("text/html");
+    expect(await html.text()).toContain("/collections/ietf");
+  });
+
+  it("serves a collection page with entry links, manifest link and a pager", async () => {
+    const app = createApp({});
+    const res = await app.request("/collections/ietf?page=1", {
+      headers: { Accept: "text/html" },
+    }, htmlEnv as never);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("/collections/ietf/entries/rfc%207231");
+    expect(html).toContain("manifest.json");
+    expect(html).toContain("page 2"); // page=1 renders as page 2 (1-based)
+  });
+
+  it("frames an entry for browsers and links the raw bytes", async () => {
+    const app = createApp({});
+    const res = await app.request("/collections/ietf/entries/rfc%207231", {
+      headers: { Accept: "text/html" },
+    }, htmlEnv as never);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("id: RFC7231");
+    expect(html).toContain("?raw=1");
+  });
+
+  it("keeps raw bytes for API clients regardless of Accept", async () => {
+    const app = createApp({});
+    const client = await app.request("/collections/ietf/entries/rfc%207231", {
+      headers: { Accept: "*/*" },
+    }, htmlEnv as never);
+    expect(client.headers.get("content-type")).toBe("application/yaml");
+    expect(await client.text()).toBe("id: RFC7231\n");
   });
 });

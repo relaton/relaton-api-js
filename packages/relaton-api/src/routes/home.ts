@@ -100,6 +100,10 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
   <h2>Endpoints</h2>
   <div class="grid">
     <div class="card">
+      <a href="/collections">/collections — browse the database</a>
+      <p>Every flavor as a browsable collection: records, search, and per-document pages. API clients get JSON at the same URLs.</p>
+    </div>
+    <div class="card">
       <a href="/api/v1/document?code=ISO%2019115-1">GET /api/v1/document</a>
       <p>Fetch a document as Relaton XML. Parameters: <code>code</code> (required), <code>year</code>, <code>all_parts</code>, <code>keep_year</code>. Same contract the Relaton gem uses via <code>use_api</code>.</p>
     </div>

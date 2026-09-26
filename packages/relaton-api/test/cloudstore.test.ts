@@ -1,0 +1,111 @@
+import { describe, expect, it } from "vitest";
+import { createApp } from "../src/app";
+
+interface FakeFlavor {
+  flavor: string;
+  doc_count: number;
+  last_modified: string | null;
+  ingested_at: string;
+}
+
+function makeEnv(opts: {
+  flavor: FakeFlavor | null;
+  entry: { docid: string; r2_key: string } | null;
+  docids: string[];
+  objects?: Record<string, string>;
+}) {
+  const db = {
+    prepare(sql: string) {
+      const stmt = {
+        bind() {
+          return stmt;
+        },
+        first: async () => {
+          if (sql.includes("FROM flavors")) return opts.flavor;
+          if (sql.includes("FROM documents")) return opts.entry;
+          return null;
+        },
+        all: async () => {
+          if (sql.includes("FROM documents")) {
+            return {
+              results: opts.docids.map((docid) => ({
+                r2_key: `ietf/${docid.toLowerCase()}`,
+                docid,
+              })),
+            };
+          }
+          if (sql.includes("FROM flavors")) return { results: [opts.flavor] };
+          return { results: [] };
+        },
+      };
+      return stmt;
+    },
+  };
+  const objects = opts.objects ?? {};
+  const bucket = {
+    get: async (key: string) => (objects[key] ? { text: async () => objects[key] } : null),
+  };
+  return { DB: db as unknown as D1Database, BUCKET: bucket as unknown as R2Bucket };
+}
+
+const flavorRow: FakeFlavor = {
+  flavor: "ietf",
+  doc_count: 2,
+  last_modified: "2026-09-25T00:00:00Z",
+  ingested_at: "2026-09-25T01:00:00Z",
+};
+
+describe("lutaml cloud store contract", () => {
+  it("lists collections", async () => {
+    const app = createApp({});
+    const env = makeEnv({ flavor: flavorRow, entry: null, docids: ["RFC 7231", "RFC 3986"] });
+    const res = await app.request("/collections", {}, env as never);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ collections: [{ name: "ietf", count: 2 }] });
+  });
+
+  it("serves the collection manifest with etag and cache-control", async () => {
+    const app = createApp({});
+    const env = makeEnv({ flavor: flavorRow, entry: null, docids: ["RFC 7231", "RFC 3986"] });
+    const res = await app.request("/collections/ietf/manifest", {}, env as never);
+    expect(res.status).toBe(200);
+    const manifest = (await res.json()) as { version: number; count: number; generated: string; entries: { key: string }[] };
+    expect(manifest.version).toBe(1);
+    expect(manifest.count).toBe(2);
+    expect(manifest.generated).toBe("2026-09-25T00:00:00Z");
+    expect(manifest.entries.map((e: { key: string }) => e.key)).toEqual([
+      "rfc 7231",
+      "rfc 3986",
+    ]);
+    expect(
+      (manifest.entries[1] as { metadata?: unknown }).metadata,
+    ).toEqual({ docid: "RFC 3986" });
+    expect(res.headers.get("cache-control")).toContain("max-age");
+    expect(res.headers.get("etag")).toBeTruthy();
+  });
+
+  it("serves an entry from R2 by docid", async () => {
+    const app = createApp({});
+    const env = makeEnv({
+      flavor: flavorRow,
+      entry: { docid: "RFC 7231", r2_key: "ietf/rfc7231" },
+      docids: ["RFC 7231"],
+      objects: { "ietf/rfc7231": "id: RFC7231\n" },
+    });
+    const res = await app.request("/collections/ietf/entries/rfc%207231", {}, env as never);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/yaml");
+    expect(await res.text()).toBe("id: RFC7231\n");
+  });
+
+  it("answers 404 definitively for unknown collections and entries", async () => {
+    const app = createApp({});
+    const unknownCollection = makeEnv({ flavor: null, entry: null, docids: [] });
+    const res = await app.request("/collections/nope/manifest", {}, unknownCollection as never);
+    expect(res.status).toBe(404);
+
+    const unknownEntry = makeEnv({ flavor: flavorRow, entry: null, docids: [] });
+    const noEntry = await app.request("/collections/ietf/entries/rfc%209999", {}, unknownEntry as never);
+    expect(noEntry.status).toBe(404);
+  });
+});

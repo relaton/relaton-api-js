@@ -4,6 +4,7 @@ import { parseConfig, type RelatonApiConfig } from "./config";
 import type { AppEnv } from "./env";
 import { adminRoutes } from "./routes/admin";
 import { restRoutes } from "./routes/rest";
+import { cloudStoreRoutes } from "./routes/cloudstore";
 import { graphqlRoute } from "./routes/graphql";
 import { renderHome } from "./routes/home";
 
@@ -44,6 +45,7 @@ export function createApp(configInput: unknown = {}) {
   app.get("/", async (c) => c.html(await renderHome(c.env.DB, c.env.API_VERSION ?? "dev", config.name)));
 
   app.route("/", restRoutes);
+  app.route("/", cloudStoreRoutes);
   app.route("/", adminRoutes);
   app.all(config.paths.graphql, graphqlRoute());
 

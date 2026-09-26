@@ -146,9 +146,13 @@ export async function renderCollectionPage(
     : "WHERE flavor = ?";
   const bind = query ? [collection, like, like] : [collection];
 
+  // The page constants interpolate (integers, internal); the ? binds stay
+  // positional — mixing ?n placeholders with ? binds confuses D1.
+  const limit = PAGE_SIZE + 1;
+  const offset = page * PAGE_SIZE;
   const { results } = await db.prepare(
-    `SELECT r2_key, docid FROM documents ${where} ORDER BY r2_key LIMIT ?1 OFFSET ?2`,
-  ).bind(...bind, PAGE_SIZE + 1, page * PAGE_SIZE).all<EntryRow>();
+    `SELECT r2_key, docid FROM documents ${where} ORDER BY r2_key LIMIT ${limit} OFFSET ${offset}`,
+  ).bind(...bind).all<EntryRow>();
 
   const rows = results ?? [];
   const hasNext = rows.length > PAGE_SIZE;

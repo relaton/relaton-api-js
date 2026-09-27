@@ -38,19 +38,29 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Relaton API</title>
+<link rel="icon" type="image/svg+xml" href="https://relaton.org/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#1F6CF1">
 <style>
   :root {
-    --bg: #ffffff; --fg: #111318; --muted: #5c6470; --border: #e3e6ea;
-    --accent: #0443c9; --code-bg: #f4f5f7; --chip-bg: #f4f5f7;
+    --bg: #ffffff; --bg-soft: #f8fafb; --fg: #1C2126; --muted: #64748B; --border: #E2E8F0;
+    --accent: #1F6CF1; --accent-soft: rgba(31, 108, 241, 0.1);
+    --code-bg: #f6f8fa; --chip-bg: #f1f4f7;
+    --font: 'Outfit', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #101216; --fg: #e8eaee; --muted: #9aa2ad; --border: #2a2f37;
-            --accent: #7ea2ff; --code-bg: #181b20; --chip-bg: #181b20; }
+    :root { --bg: #0B0F13; --bg-soft: #111820; --fg: #E8ECF0; --muted: #5F7082; --border: #1E2A36;
+            --accent: #4D88F3; --accent-soft: rgba(31, 108, 241, 0.15);
+            --code-bg: #10151b; --chip-bg: #171F28; }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--fg);
-    font: 16px/1.6 ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+    font: 16px/1.6 var(--font);
+    -webkit-font-smoothing: antialiased;
   }
   main { max-width: 880px; margin: 0 auto; padding: 48px 24px 72px; }
   h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 8px; }
@@ -60,18 +70,18 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
   h2 { font-size: 20px; margin: 40px 0 12px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
   .card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-  .card a { color: var(--accent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
+  .card a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-weight: 600; }
   .card a:hover { text-decoration: underline; }
   .card p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
   pre {
     background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
     padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.5;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-family: var(--mono);
   }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; }
+  code { font-family: var(--mono); font-size: 0.9em; }
   .search { display: flex; gap: 8px; margin: 12px 0; }
   .search input {
-    flex: 1; padding: 10px 12px; font-size: 15px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    flex: 1; padding: 10px 12px; font-size: 15px; font-family: var(--mono);
     border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg);
   }
   .search button {

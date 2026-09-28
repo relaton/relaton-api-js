@@ -4,7 +4,7 @@
 // relaton.org so users learn what each field means in place.
 
 import { escapeHtml } from "./chrome";
-import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml, toIso690 } from "relaton-ts";
+import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml, toIso690 } from "relaton";
 import { highlightXml, highlightYaml } from "../../lib/highlight";
 
 // Field → relaton.org model documentation page

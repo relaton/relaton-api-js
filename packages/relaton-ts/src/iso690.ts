@@ -78,8 +78,10 @@ function mainTitle(rec: Rec): { main?: string; part?: string } {
   for (const t of rec.title ?? []) {
     const content = contentOf(t);
     if (!content) continue;
-    if (t.type === "title-part") part = part ? `${part} — ${content}` : content;
-    else if (!main) main = content;
+    // One title-part renders — the record's citation language; the first
+    // (document order) wins over translations.
+    if (t.type === "title-part") part = part ?? content;
+    else main = main ?? content;
   }
   return { main, part };
 }

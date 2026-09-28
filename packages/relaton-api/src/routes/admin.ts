@@ -8,6 +8,7 @@ interface IngestDocid {
 }
 
 interface IngestRow {
+  abstract?: string | null;
   file_path: string;
   r2_key: string;
   docid: string | null;
@@ -46,6 +47,49 @@ function tokenMatches(header: string | undefined, token: string): boolean {
 
 export const adminRoutes = new Hono<AppEnv>();
 
+/**
+ * Backfills the abstract column for already-ingested documents by reading
+ * each record from R2 and extracting the abstract. Paged: pass ?cursor=
+ * (last document id) to continue; repeats until the flavor is walked.
+ */
+adminRoutes.post("/admin/backfill-abstracts/:flavor", async (c) => {
+  if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
+    return c.text("Forbidden.", 403);
+  }
+  const flavor = c.req.param("flavor").replace(/[^a-z0-9-]/gi, "");
+  const limit = Math.min(500, Number(c.req.query("limit") ?? "200") || 200);
+  const cursor = Number(c.req.query("cursor") ?? "0") || 0;
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, r2_key FROM documents
+     WHERE flavor = ?1 AND id > ?2 AND abstract IS NULL ORDER BY id LIMIT ?3`,
+  ).bind(flavor, cursor, limit).all<{ id: number; r2_key: string }>();
+
+  let done = 0;
+  let lastId = cursor;
+  for (const row of results ?? []) {
+    lastId = row.id;
+    const obj = await c.env.BUCKET.get(row.r2_key);
+    if (!obj) continue;
+    const body = await obj.text();
+    let abstract: string | null = null;
+    if (body.trimStart().startsWith("<")) {
+      const m = body.match(/<abstract[^>]*>([\s\S]*?)<\/abstract>/);
+      if (m?.[1]) abstract = m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().slice(0, 4000) || null;
+    }
+    if (abstract) {
+      await c.env.DB.prepare("UPDATE documents SET abstract = ?1 WHERE id = ?2")
+        .bind(abstract, row.id).run();
+      done += 1;
+    }
+  }
+
+  return c.json({
+    flavor, scanned: results?.length ?? 0, updated: done, lastId,
+    nextCursor: (results?.length ?? 0) === limit ? lastId : null,
+  });
+});
+
 adminRoutes.post("/admin/ingest/:flavor", async (c) => {
   if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
     return c.text("Forbidden.", 403);
@@ -61,16 +105,17 @@ adminRoutes.post("/admin/ingest/:flavor", async (c) => {
       c.env.DB.prepare(
         `INSERT INTO documents
            (flavor, file_path, kind, r2_key, docid, norm, undated_norm, allparts_norm,
-            year, published, title_en, doctype, status)
-         VALUES (?1, ?2, 'document', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            year, published, title_en, doctype, status, abstract)
+         VALUES (?1, ?2, 'document', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
          ON CONFLICT (flavor, file_path, kind) DO UPDATE SET
            r2_key = excluded.r2_key, docid = excluded.docid, norm = excluded.norm,
            undated_norm = excluded.undated_norm, allparts_norm = excluded.allparts_norm,
            year = excluded.year, published = excluded.published, title_en = excluded.title_en,
-           doctype = excluded.doctype, status = excluded.status`,
+           doctype = excluded.doctype, status = excluded.status, abstract = excluded.abstract`,
       ).bind(
         flavor, row.file_path, row.r2_key, row.docid, row.norm, row.undated_norm,
         row.allparts_norm, row.year, row.published, row.title_en, row.doctype, row.status,
+        row.abstract ?? null,
       ),
     );
     stmts.push(

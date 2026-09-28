@@ -4,6 +4,8 @@
 
 export interface SearchParams {
   q?: string;
+  /** Also match the query against record abstracts (LIKE-based). */
+  inAbstract?: boolean;
   flavor?: string;
   doctype?: string;
   status?: string;
@@ -79,9 +81,16 @@ function buildWhere(p: SearchParams, opts: { scopeFlavor?: string } = {}): Built
     bind.push(p.yearTo);
   }
   if (p.q) {
-    clauses.push("(docid LIKE ? OR title_en LIKE ? OR norm LIKE ? OR undated_norm LIKE ?)");
     const like = `%${p.q}%`;
-    bind.push(like, like, like, like);
+    if (p.inAbstract) {
+      clauses.push(
+        "(docid LIKE ? OR title_en LIKE ? OR norm LIKE ? OR undated_norm LIKE ? OR abstract LIKE ?)",
+      );
+      bind.push(like, like, like, like, like);
+    } else {
+      clauses.push("(docid LIKE ? OR title_en LIKE ? OR norm LIKE ? OR undated_norm LIKE ?)");
+      bind.push(like, like, like, like);
+    }
   }
 
   return {
@@ -108,6 +117,15 @@ export async function searchDocuments(
   params: SearchParams,
   opts: { scopeFlavor?: string } = {},
 ): Promise<SearchResult> {
+  // The abstract column is populated by ingest (migration 0002); a LIKE
+  // over it is a scan — tolerate missing column on pre-migration DBs.
+  if (params.inAbstract) {
+    try {
+      await db.prepare("SELECT abstract FROM documents LIMIT 1").first();
+    } catch {
+      params = { ...params, inAbstract: false };
+    }
+  }
   const page = Math.max(0, params.page ?? 0);
   const size = Math.min(100, Math.max(10, params.size ?? 25));
   const { where, bind } = buildWhere(params, opts);

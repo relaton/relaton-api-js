@@ -188,6 +188,10 @@ files.each_with_index do |path, idx|
   published = (doc["date"] || []).find { |d| d.is_a?(Hash) && d["type"] == "published" }&.[]("at") ||
               (doc["date"] || []).find { |d| d.is_a?(Hash) && d["type"] == "published" }&.[]("value")
 
+  abstract = (doc["abstract"] || []).map { |a| a.is_a?(Hash) ? a["content"].to_s.gsub(/<[^>]+>/, "").strip : a.to_s }
+                                    .find { |a| !a.empty? }
+  abstract = nil if abstract.to_s.empty?
+
   norm, undated_norm, allparts_norm = derive_keys(primary["content"].to_s, options[:flavor])
   year = primary["content"].to_s[/:(\d{4})(?=[^-]*$)/, 1] || published.to_s[0, 4]
 
@@ -215,6 +219,7 @@ files.each_with_index do |path, idx|
     title_en: main_title && main_title["content"],
     doctype: doc["type"],
     status: extract_status(doc["status"]),
+    abstract: abstract,
     docids: all_ids.map { |h| h.merge(norm: h[:norm].upcase.delete(" ")) }
                     .filter_map { |h| h[:norm].empty? ? nil : h }.uniq { |h| h[:norm] },
   }

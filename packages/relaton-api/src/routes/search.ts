@@ -18,6 +18,7 @@ const CSS = `
     border-radius: 8px; background: var(--bg); color: var(--fg); }
   .search-bar button { padding: 10px 18px; font: 14px var(--font); border: none; border-radius: 8px;
     background: var(--accent); color: #fff; cursor: pointer; }
+  .abstract-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); }
   .facets h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--muted); margin: 18px 0 6px; }
   .facet-link { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 13.5px;
@@ -74,6 +75,7 @@ function parseParams(url: URL): SearchParams {
     flavor: url.searchParams.get("flavor") || undefined,
     doctype: url.searchParams.get("doctype") || undefined,
     status: url.searchParams.get("status") || undefined,
+    inAbstract: url.searchParams.get("abstract") === "1",
     yearFrom: num("yearFrom"),
     yearTo: num("yearTo"),
     sort,
@@ -161,6 +163,7 @@ export async function renderSearchPage(db: D1Database, url: URL, opts: SearchPag
 ${scopeMeta}
 <form class="search-bar" method="get" action="${action}">
   <input name="q" value="${escapeHtml(params.q ?? "")}" placeholder="Publication identifier or title — e.g. ISO 19115, TLS, risk assessment…" aria-label="Search">
+  <label class="abstract-toggle"><input type="checkbox" name="abstract" value="1"${params.inAbstract ? " checked" : ""}> search abstracts</label>
   <select name="yearFrom" aria-label="Year from">
     <option value="">any year</option>
     ${Array.from({ length: 8 }, (_, i) => 2026 - i * 5).map((y) =>

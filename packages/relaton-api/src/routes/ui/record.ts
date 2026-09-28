@@ -154,10 +154,16 @@ function renderOverview(record: Record<string, unknown>): string {
     const obj = (typeof r === "object" && r !== null ? r : {}) as Record<string, unknown>;
     const typeAttr = typeof obj.type === "string" ? escapeHtml(obj.type) : "relation";
     const bibitem = obj.bibitem as Record<string, unknown> | undefined;
-    const ref = contentOf(bibitem?.formattedref) ||
-      contentOf((bibitem?.docidentifier as Record<string, unknown> | undefined)) ||
+    const relatedDocid = asArray(bibitem?.docidentifier as unknown[])
+      .map((d) => contentOf(typeof d === "object" && d !== null ? (d as Record<string, unknown>).content : d))
+      .find(Boolean);
+    const ref = contentOf(bibitem?.formattedref) || relatedDocid ||
       contentOf(Array.isArray(bibitem?.title) ? bibitem.title[0] : bibitem?.title);
-    return ref ? `<div class="ov-row"><span class="ov-key">${typeAttr}</span><span>${escapeHtml(ref)}</span></div>` : "";
+    if (!ref) return "";
+    const target = relatedDocid
+      ? `<a href="/search?q=${encodeURIComponent(relatedDocid)}" title="Open this document">${escapeHtml(ref)} ↗</a>`
+      : escapeHtml(ref);
+    return `<div class="ov-row"><span class="ov-key">${typeAttr}</span><span>${target}</span></div>`;
   }).join("");
 
   const series = asArray(record.series as unknown[]).map((s) => {
@@ -166,7 +172,11 @@ function renderOverview(record: Record<string, unknown>): string {
     const number = contentOf(obj.number);
     const part = contentOf(obj.partnumber);
     const text = [titleText, number ? `no. ${number}` : "", part ? `part ${part}` : ""].filter(Boolean).join(" · ");
-    return text ? `<div class="ov-row">${escapeHtml(text)}</div>` : "";
+    if (!text) return "";
+    const siblings = titleText
+      ? ` <a class="series-link" href="/search?q=${encodeURIComponent(titleText)}">other documents in this series ↗</a>`
+      : "";
+    return `<div class="ov-row"><span>${escapeHtml(text)}${siblings}</span></div>`;
   }).join("");
 
   const copyright = record.copyright as Record<string, unknown> | undefined;
@@ -328,6 +338,7 @@ export const RECORD_CSS = `
   .ov-row { display: flex; gap: 12px; padding: 3px 0; font-size: 14.5px; }
   .ov-key { min-width: 96px; color: var(--muted); font-size: 13px; padding-top: 2px; }
   .ov-section p { font-size: 14.5px; line-height: 1.65; margin: 0 0 10px; }
+  .series-link { font-size: 12.5px; }
   .cite-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 6px; }
   .cite-anchor code { background: var(--accent-soft); color: var(--accent); padding: 6px 10px; border-radius: 6px; }
   .copy-btn { font: 13px var(--font); padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px;

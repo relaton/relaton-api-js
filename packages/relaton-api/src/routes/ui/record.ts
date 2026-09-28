@@ -4,7 +4,7 @@
 // relaton.org so users learn what each field means in place.
 
 import { escapeHtml } from "./chrome";
-import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml } from "relaton-ts";
+import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml, toIso690 } from "relaton-ts";
 import { highlightXml, highlightYaml } from "../../lib/highlight";
 
 // Field → relaton.org model documentation page
@@ -216,11 +216,20 @@ export function renderRecordPage({ collection, key, docid, body }: RecordPageInp
   const asciibib = item ? toAsciiBib(item, anchor) : null;
 
   const entryPath = `/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key)}`;
+  const iso690 = item ? toIso690(item) : "";
+  const primaryDocid = (() => {
+    const docids = Array.isArray(record?.docidentifier) ? record?.docidentifier : record?.docidentifier ? [record.docidentifier] : [];
+    const first = docids[0] as Record<string, unknown> | undefined;
+    return typeof first?.content === "string" ? first.content : docid;
+  })();
+  const fetchEntry = `* [[[${anchor},${primaryDocid}]]]`;
   const citePanel = `
+${iso690 ? `<p class="iso690-citation">${escapeHtml(iso690)}</p>` : ""}
 <div class="cite-panel">
 <span class="cite-anchor" title="Citation anchor (derived from the identifier)"><code>${escapeHtml(anchor)}</code></span>
 <button type="button" class="copy-btn" data-copy-text="&lt;&lt;${escapeHtml(anchor)}&gt;&gt;">Copy <code>&lt;&lt;${escapeHtml(anchor)}&gt;&gt;</code></button>
 <button type="button" class="copy-btn" data-copy-text="cite:[${escapeHtml(anchor)}]">Copy <code>cite:[${escapeHtml(anchor)}]</code></button>
+<button type="button" class="copy-btn" data-copy-text="${escapeHtml(fetchEntry)}" title="One-line entry: Metanorma fetches the full record by this identifier at build time">Copy fetch entry</button>
 ${asciibib ? `
 <button type="button" class="mn-cta" data-copy-asciibib title="Copy the AsciiBib representation">
   <img class="mn-icon mn-light-bg" src="/assets/metanorma-icon-light-bg.svg" alt="Metanorma">
@@ -342,6 +351,11 @@ export const RECORD_CSS = `
   .mn-cta.copied { border-color: var(--success); }
   .mn-cta.copied .mn-cta-text strong { color: var(--success); }
   .cite-hint { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+  .iso690-citation {
+    font-size: 15.5px; line-height: 1.6; color: var(--fg); margin: 0 0 14px;
+    padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--bg-soft);
+    border-radius: 0 8px 8px 0;
+  }
   .tok-tag { color: var(--accent); }
   .tok-attr { color: var(--aqua); }
   .tok-str { color: #b7791f; }

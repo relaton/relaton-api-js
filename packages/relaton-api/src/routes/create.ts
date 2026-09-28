@@ -1,6 +1,6 @@
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
-import { parseItem, toYaml, toXml, toJson, toAsciiBib, toIso690, slugAnchor, type RelatonItem } from "relaton-ts";
+import { parseItem, toYaml, toXml, toJson, toAsciiBib, toIso690, slugAnchor, type RelatonItem } from "relaton";
 import { parse as parsePubid } from "pubid-ts";
 import { RECORD_CSS } from "./ui/record";
 

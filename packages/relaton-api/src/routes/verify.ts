@@ -1,6 +1,6 @@
 import { layout, escapeHtml } from "./ui/chrome";
 import { renderRecordPage, RECORD_CSS } from "./ui/record";
-import { parseItem, toYaml, toXml, toJson, toAsciiBib, slugAnchor, type RelatonItem } from "relaton-ts";
+import { parseItem, toYaml, toXml, toJson, toAsciiBib, slugAnchor, type RelatonItem } from "relaton";
 
 // Hosted `relaton fetch` for identifiers that resolve live: DOIs via
 // CrossRef, ISBNs via OpenLibrary. The fetched metadata is mapped to a

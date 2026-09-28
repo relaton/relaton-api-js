@@ -1,6 +1,6 @@
 import { searchDocuments } from "../lib/search";
 import { findDocument } from "../lib/lookup";
-import { fromXml, toAsciiBib, toIso690, toYaml, slugAnchor, type RelatonItem } from "relaton-ts";
+import { fromXml, toAsciiBib, toIso690, toYaml, slugAnchor, type RelatonItem } from "relaton";
 import { renderCreatePreview, type CreatePayload } from "./create";
 import { verifyCode } from "./verify";
 

@@ -146,6 +146,11 @@ function coerceToSchema(doc: Record<string, unknown>): ParseResult<RelatonItem> 
           container[key as string] = [value];
           changed = true;
         }
+      } else if (err.message.includes("Expected object, received array")) {
+        if (Array.isArray(value) && value.length === 1) {
+          container[key as string] = value[0];
+          changed = true;
+        }
       } else if (err.message.includes("Expected object, received string")) {
         if (typeof value === "string" && value !== "") {
           container[key as string] = { content: value };

@@ -174,7 +174,7 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
     const text = [titleText, number ? `no. ${escapeHtml(number)}` : "", part ? `part ${escapeHtml(part)}` : ""].filter(Boolean).join(" · ");
     if (!text) return "";
     const siblings = familyQuery
-      ? `<a class="series-link" href="/collections/${escapeHtml(collection)}/search?q=${encodeURIComponent(familyQuery)}">other documents in this series ↗</a>`
+      ? `<a class="series-link" href="/collections/${escapeHtml(collection)}?q=${encodeURIComponent(familyQuery)}">other documents in this series ↗</a>`
       : "";
     return `<div class="ov-row"><span>${escapeHtml(text)}</span>${siblings}</div>`;
   }).join("");

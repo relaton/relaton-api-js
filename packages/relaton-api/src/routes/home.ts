@@ -1,4 +1,5 @@
 import type { AppEnv } from "../env";
+import { layout, escapeHtml } from "./ui/chrome";
 
 interface FlavorRow {
   flavor: string;
@@ -6,9 +7,35 @@ interface FlavorRow {
   ingested_at: string;
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
+const CSS = `
+  main { max-width: 880px; }
+  .tagline { color: var(--muted); font-size: 18px; margin: 0 0 20px; }
+  .stats { color: var(--muted); font-size: 14px; margin: 0 0 40px; }
+  .stats b { color: var(--fg); }
+  h2 { font-size: 20px; margin: 40px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-weight: 600; }
+  .card a:hover { text-decoration: underline; }
+  .card p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+  .search { display: flex; gap: 8px; margin: 12px 0; }
+  .search input {
+    flex: 1; padding: 10px 12px; font-size: 15px; font-family: var(--mono);
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg);
+  }
+  .search button {
+    padding: 10px 18px; font-size: 15px; border: none; border-radius: 8px;
+    background: var(--accent); color: #fff; cursor: pointer;
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: baseline; gap: 6px; background: var(--bg-mute);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px; font-size: 13px;
+  }
+  .chip-count { color: var(--muted); }
+  #result { display: none; margin-top: 8px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; }
+  #status { color: var(--muted); font-size: 13px; margin-top: 6px; min-height: 1em; }
+`;
 
 export async function renderHome(db: D1Database, version: string, name = "Relaton API"): Promise<string> {
   const { results } = await db
@@ -32,76 +59,7 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
     )
     .join("");
 
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Relaton API</title>
-<link rel="icon" type="image/svg+xml" href="https://relaton.org/favicon.svg">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<meta name="theme-color" content="#1F6CF1">
-<style>
-  :root {
-    --bg: #ffffff; --bg-soft: #f8fafb; --fg: #1C2126; --muted: #64748B; --border: #E2E8F0;
-    --accent: #1F6CF1; --accent-soft: rgba(31, 108, 241, 0.1);
-    --code-bg: #f6f8fa; --chip-bg: #f1f4f7;
-    --font: 'Outfit', ui-sans-serif, system-ui, -apple-system, sans-serif;
-    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg: #0B0F13; --bg-soft: #111820; --fg: #E8ECF0; --muted: #5F7082; --border: #1E2A36;
-            --accent: #4D88F3; --accent-soft: rgba(31, 108, 241, 0.15);
-            --code-bg: #10151b; --chip-bg: #171F28; }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--fg);
-    font: 16px/1.6 var(--font);
-    -webkit-font-smoothing: antialiased;
-  }
-  main { max-width: 880px; margin: 0 auto; padding: 48px 24px 72px; }
-  h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 8px; }
-  .tagline { color: var(--muted); font-size: 18px; margin: 0 0 20px; }
-  .stats { color: var(--muted); font-size: 14px; margin: 0 0 40px; }
-  .stats b { color: var(--fg); }
-  h2 { font-size: 20px; margin: 40px 0 12px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-  .card { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
-  .card a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-weight: 600; }
-  .card a:hover { text-decoration: underline; }
-  .card p { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
-  pre {
-    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px;
-    padding: 12px 14px; overflow-x: auto; font-size: 13px; line-height: 1.5;
-    font-family: var(--mono);
-  }
-  code { font-family: var(--mono); font-size: 0.9em; }
-  .search { display: flex; gap: 8px; margin: 12px 0; }
-  .search input {
-    flex: 1; padding: 10px 12px; font-size: 15px; font-family: var(--mono);
-    border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg);
-  }
-  .search button {
-    padding: 10px 18px; font-size: 15px; border: none; border-radius: 8px;
-    background: var(--accent); color: #fff; cursor: pointer;
-  }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  .chip {
-    display: inline-flex; align-items: baseline; gap: 6px; background: var(--chip-bg);
-    border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px; font-size: 13px;
-  }
-  .chip-count { color: var(--muted); }
-  #result { display: none; margin-top: 8px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; }
-  #status { color: var(--muted); font-size: 13px; margin-top: 6px; min-height: 1em; }
-  footer { margin-top: 56px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); padding-top: 16px; }
-  footer a { color: var(--accent); }
-</style>
-</head>
-<body>
-<main>
+  const body = `
   <h1>${escapeHtml(name)}</h1>
   <p class="tagline">Bibliographic data for technical standards, aggregated across the
   <a href="https://github.com/relaton" rel="noopener">relaton-data-*</a> repositories. Read-only, no authentication.</p>
@@ -111,7 +69,11 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
   <div class="grid">
     <div class="card">
       <a href="/collections">/collections — browse the database</a>
-      <p>Every flavor as a browsable collection: records, search, and per-document pages. API clients get JSON at the same URLs.</p>
+      <p>Every flavor as a browsable collection: records, search, and per-document pages with YAML, XML, and AsciiBib tabs.</p>
+    </div>
+    <div class="card">
+      <a href="/create">/create — build a record</a>
+      <p>Fill in a form and get Relaton YAML, XML, JSON, and AsciiBib to copy — the AsciiBib output pastes straight into Metanorma.</p>
     </div>
     <div class="card">
       <a href="/api/v1/document?code=ISO%2019115-1">GET /api/v1/document</a>
@@ -154,12 +116,7 @@ curl -s https://api.relaton.org/graphql \\
   <h2>Coverage</h2>
   <div class="chips">${chips}</div>
 
-  <footer>
-    Served by a Cloudflare Worker (TypeScript) over D1 + R2 · identifier parsing by
-    pubid-ts · source: <a href="https://github.com/relaton/api.relaton.org">github.com/relaton/api.relaton.org</a>
-  </footer>
-</main>
-<script>
+  <script>
   async function lookup() {
     var code = document.getElementById('code').value.trim();
     var status = document.getElementById('status');
@@ -198,7 +155,7 @@ curl -s https://api.relaton.org/graphql \\
   document.getElementById('code').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') lookup();
   });
-</script>
-</body>
-</html>`;
+  </script>`;
+
+  return layout({ title: "Relaton API", body, css: CSS, activeNav: "overview" });
 }

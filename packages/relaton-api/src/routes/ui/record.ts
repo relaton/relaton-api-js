@@ -4,7 +4,7 @@
 // relaton.org so users learn what each field means in place.
 
 import { escapeHtml } from "./chrome";
-import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml, toIso690 } from "relaton";
+import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml, toIso690, toChicago, toApa } from "relaton";
 import { highlightXml, highlightYaml } from "../../lib/highlight";
 
 // Field → relaton.org model documentation page
@@ -359,7 +359,11 @@ export function renderRecordPage({ collection, key, docid, body }: RecordPageInp
   const asciibib = item ? toAsciiBib(item, anchor) : null;
 
   const entryPath = `/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}`;
-  const iso690 = item ? toIso690(item) : "";
+  const citeStyles = [
+    { label: "ISO 690", text: item ? toIso690(item) : "" },
+    { label: "Chicago", text: item ? toChicago(item) : "" },
+    { label: "APA 7th", text: item ? toApa(item) : "" },
+  ].filter((s) => s.text);
   const primaryDocid = (() => {
     const docids = Array.isArray(record?.docidentifier) ? record?.docidentifier : record?.docidentifier ? [record.docidentifier] : [];
     const first = docids[0] as Record<string, unknown> | undefined;
@@ -367,7 +371,12 @@ export function renderRecordPage({ collection, key, docid, body }: RecordPageInp
   })();
   const fetchEntry = `* [[[${anchor},${primaryDocid}]]]`;
   const citePanel = `
-${iso690 ? `<p class="iso690-citation">${escapeHtml(iso690)}</p>` : ""}
+${citeStyles.length ? `<div class="cite-styles">${citeStyles.map((s) => `
+<div class="cite-style-row">
+<span class="cite-style-label">${escapeHtml(s.label)}</span>
+<span class="cite-style-text">${escapeHtml(s.text)}</span>
+<button type="button" class="copy-btn" data-copy-text="${escapeHtml(s.text)}">Copy</button>
+</div>`).join("")}</div>` : ""}
 <div class="cite-panel">
 <span class="cite-anchor" title="Citation anchor (derived from the identifier)"><code>${escapeHtml(anchor)}</code></span>
 <button type="button" class="copy-btn" data-copy-text="&lt;&lt;${escapeHtml(anchor)}&gt;&gt;">Copy <code>&lt;&lt;${escapeHtml(anchor)}&gt;&gt;</code></button>
@@ -511,11 +520,10 @@ export const RECORD_CSS = `
   .mn-cta.copied { border-color: var(--success); }
   .mn-cta.copied .mn-cta-text strong { color: var(--success); }
   .cite-hint { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
-  .iso690-citation {
-    font-size: 15.5px; line-height: 1.6; color: var(--fg); margin: 0 0 14px;
-    padding: 12px 16px; border-left: 3px solid var(--accent); background: var(--bg-soft);
-    border-radius: 0 8px 8px 0;
-  }
+  .cite-styles { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
+  .cite-style-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: baseline; }
+  .cite-style-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .cite-style-text { font-size: 14px; }
   .tok-tag { color: var(--accent); }
   .tok-attr { color: var(--aqua); }
   .tok-str { color: #b7791f; }

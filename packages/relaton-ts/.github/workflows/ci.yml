@@ -1,0 +1,40 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      BUNDLE_GEMFILE: ${{ github.workspace }}/tools/Gemfile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm ci
+
+      # The committed schema artifact must match what the pinned relaton
+      # produces — this catches model drift that would change the wire shape.
+      - name: Verify schema artifact is up to date
+        run: |
+          bundle exec ruby tools/export_schema.rb
+          git diff --exit-code schema/
+
+      - run: npm run generate
+      - name: Verify generated code is up to date
+        run: git diff --exit-code src/generated/
+
+      - run: npm run build
+      - run: npm test

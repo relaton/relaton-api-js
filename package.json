@@ -9,13 +9,16 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "vitest run",
+    "test": "npm run test:lib && vitest run",
     "typecheck": "tsc --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply api-relaton-org --local",
-    "db:migrate:remote": "wrangler d1 migrations apply api-relaton-org --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply api-relaton-org --remote",
+    "test:lib": "npm test --workspace relaton-ts"
   },
   "dependencies": {
     "@hono/zod-openapi": "^1.6.0",
+    "@relaton/api": "*",
+    "fast-xml-parser": "^5.11.1",
     "fflate": "^0.8.3",
     "graphql": "^16.14.2",
     "graphql-yoga": "^5.21.3",
@@ -23,7 +26,7 @@
     "js-yaml": "^5.3.0",
     "pubid-ts": "*",
     "zod": "^4.4.3",
-    "@relaton/api": "*"
+    "relaton-ts": "*"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.21.3",

@@ -1,7 +1,6 @@
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
-import { toAsciiBib, slugAnchor, type AsciibibNode } from "../lib/asciibib";
-import { load as yamlLoad } from "js-yaml";
+import { renderRecordPage, RECORD_CSS } from "./ui/record";
 
 // Browsable web UI for the lutaml cloud store. Every page is server-rendered
 // HTML served by the same routes that answer JSON to API clients — the
@@ -162,10 +161,9 @@ ${body}
 }
 
 /**
- * A single record, framed for a browser: tabs for the source bytes, the
- * formatted Relaton XML (bibdata) resolved through the same lookup path as
- * /api/v1/document, and an AsciiBib rendering to paste into Metanorma.
- * Raw bytes stay one click away.
+ * A single record, framed for a browser: human-readable overview plus the
+ * serializations, rendered by ui/record.ts on top of relaton-ts. Raw bytes
+ * stay one click away.
  */
 export async function renderEntry(
   db: D1Database,
@@ -191,91 +189,14 @@ export async function renderEntry(
   }
 
   const docid = row.docid ?? key;
-  const entryPath = `/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key)}`;
-
-  // The formatted XML view comes from the documents index (what
-  // /api/v1/document serves), not from re-serializing the source bytes.
-  let xml: string | null = null;
-  if (row.docid) {
-    const doc = await findDocumentQuietly(db, row.docid);
-    if (doc && doc.r2_key !== row.r2_key) {
-      const xmlObj = await fetchObject(doc.r2_key).catch(() => null);
-      if (xmlObj) xml = await xmlObj.text();
-    }
-  }
-
-  const isXmlSource = key.endsWith(".xml");
-  const sourceLabel = isXmlSource ? "XML source" : "YAML source";
-  const asciibib = isXmlSource ? null : yamlToAsciiBibQuietly(body, slugAnchor(docid));
-
-  const tabs: string[] = [];
-  const panes: string[] = [];
-  const addTab = (id: string, label: string, content: string) => {
-    const first = tabs.length === 0;
-    tabs.push(`<button class="tab-btn" id="tab-btn-${id}" role="tab" aria-selected="${first}" aria-controls="pane-${id}" data-pane="pane-${id}">${label}</button>`);
-    panes.push(`<pre id="pane-${id}" role="tabpanel" aria-labelledby="tab-btn-${id}"${first ? "" : " hidden"}>${escapeHtml(content)}</pre>`);
-  };
-
-  addTab("source", sourceLabel, body);
-  if (xml !== null) addTab("xml", "Relaton XML <code>bibdata</code>", xml);
-  if (asciibib !== null) addTab("asciibib", "AsciiBib", asciibib);
-
-  const extraTabs = tabs.length > 1
-    ? `<div class="tabs" role="tablist">${tabs.join("\n")}</div>`
-    : `<div class="tabs"><button class="tab-btn" aria-selected="true">${sourceLabel}</button></div>`;
-
-  const tabScript = tabs.length > 1
-    ? `<script>
-document.querySelectorAll('.tab-btn[data-pane]').forEach(function (btn) {
-  btn.addEventListener('click', function () {
-    document.querySelectorAll('.tab-btn[data-pane]').forEach(function (b) {
-      b.setAttribute('aria-selected', String(b === btn));
-    });
-    document.querySelectorAll('[role="tabpanel"]').forEach(function (p) {
-      p.hidden = p.id !== btn.dataset.pane;
-    });
-  });
-});
-</script>`
-    : "";
-
   return {
     html: layout({
       title: `${docid} — Relaton API`,
       activeNav: "collections",
-      css: CSS,
-      body: `<h1>${escapeHtml(docid)}</h1>
-<p class="meta">${escapeHtml(collection)} · key <code>${escapeHtml(key)}</code> ·
-<a href="${entryPath}?raw=1">raw bytes</a> ·
-<a href="/collections/${escapeHtml(collection)}">back to ${escapeHtml(collection)}</a> ·
-XML also at <a href="/api/v1/document?code=${encodeURIComponent(docid)}">/api/v1/document</a> ·
-paste the AsciiBib tab into Metanorma</p>
-${extraTabs}
-<div class="panes">
-${panes.join("\n")}
-</div>
-${tabScript}`,
+      css: CSS + RECORD_CSS,
+      body: renderRecordPage({ collection, key, docid, body }),
     }),
   };
-}
-
-async function findDocumentQuietly(db: D1Database, code: string) {
-  try {
-    const { findDocument } = await import("../lib/lookup");
-    return await findDocument(db, { code });
-  } catch {
-    return null;
-  }
-}
-
-function yamlToAsciiBibQuietly(source: string, anchor: string): string | null {
-  try {
-    const parsed = yamlLoad(source);
-    if (parsed === null || typeof parsed !== "object") return null;
-    return toAsciiBib(parsed as Record<string, AsciibibNode>, anchor);
-  } catch {
-    return null;
-  }
 }
 
 export type { AppEnv };

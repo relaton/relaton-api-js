@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "generated": "2026-09-26T00:00:00Z",
+  "count": 3,
+  "shards": 0,
+  "entries": [
+    {
+      "key": "RFC 7231",
+      "location": "entries/rfc7231.yaml",
+      "digest": "sha256:9fa9fb4a479cc0403ca41058d89cd5205ff956641df62229786a1a0ae6bdbbdc",
+      "metadata": {
+        "docid": "RFC 7231"
+      }
+    },
+    {
+      "key": "draft-ietf-quic-transport",
+      "location": "entries/draft-ietf-quic-transport.yaml",
+      "digest": "sha256:ab0efa5af216317a95d6ada891c6e6afc963125ff8df195411a7c05a5b8b6c4e",
+      "metadata": {
+        "docid": "draft-ietf-quic-transport"
+      }
+    },
+    {
+      "key": "ISO 19115-1:2014",
+      "location": "entries/ISO+19115-1%3A2014.json",
+      "digest": "sha256:5b48515fe7f50406f8245dabd868033a76d6b7b1919f12f802c64f4472b81834",
+      "metadata": {
+        "docid": "ISO 19115-1:2014"
+      }
+    }
+  ]
+}

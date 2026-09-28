@@ -9,5 +9,9 @@ export default defineConfig({
   ],
   test: {
     globals: true,
+    // The workerd pool runs all workspace package tests except
+    // packages/relaton-ts, which is pure Node and runs its own suite.
+    include: ["packages/*/test/**/*.test.ts"],
+    exclude: ["packages/relaton-ts/**", "**/node_modules/**"],
   },
 });

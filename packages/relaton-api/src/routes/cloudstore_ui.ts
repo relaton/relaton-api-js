@@ -18,6 +18,23 @@ interface EntryRow {
   docid: string | null;
 }
 
+
+// Publisher logos come from relaton.org's per-flavor set
+// (https://www.relaton.org — public/logos). A few flavors ship as PNG.
+const PNG_LOGOS = new Set(["omg", "cenelec"]);
+
+function logoSrc(flavor: string): string | null {
+  if (!/^[a-z0-9-]+$/.test(flavor)) return null;
+  const ext = PNG_LOGOS.has(flavor) ? "png" : "svg";
+  return `https://www.relaton.org/logos/${flavor}-logo.${ext}`;
+}
+
+function logoImg(flavor: string): string {
+  const src = logoSrc(flavor);
+  if (!src) return "";
+  return `<img class="coll-logo" src="${src}" alt="" loading="lazy" onerror="this.remove()">`;
+}
+
 const PAGE_SIZE = 50;
 
 const CSS = `
@@ -27,6 +44,8 @@ const CSS = `
   td a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 14px; }
   td a:hover { text-decoration: underline; }
   .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .coll-cell { display: inline-flex; align-items: center; gap: 10px; }
+  .coll-logo { width: 34px; height: 34px; object-fit: contain; }
   .toolbar { display: flex; gap: 8px; margin: 0 0 16px; flex-wrap: wrap; }
   .toolbar input {
     flex: 1; min-width: 220px; padding: 10px 12px; font-size: 15px; font-family: var(--mono);
@@ -64,7 +83,7 @@ export async function renderCollections(db: D1Database): Promise<string> {
   const rows = (results ?? [])
     .map((f) => {
       const updated = f.last_modified ?? "";
-      return `<tr><td><a href="/collections/${escapeHtml(f.flavor)}">${escapeHtml(f.flavor)}</a></td>` +
+      return `<tr><td><span class="coll-cell">${logoImg(f.flavor)}<a href="/collections/${escapeHtml(f.flavor)}">${escapeHtml(f.flavor)}</a></span></td>` +
         `<td class="num">${f.doc_count.toLocaleString("en-US")}</td>` +
         `<td class="num">${escapeHtml(updated.slice(0, 10))}</td></tr>`;
     })

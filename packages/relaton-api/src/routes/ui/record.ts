@@ -32,11 +32,11 @@ function asArray<T>(value: T | T[] | undefined | null): T[] {
 }
 
 function contentOf(value: unknown): string {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return value.replace(/^"(.*)"$/, "$1");
   if (typeof value === "number") return String(value);
   if (typeof value === "object" && value !== null) {
     const c = (value as Record<string, unknown>).content;
-    if (typeof c === "string") return c;
+    if (typeof c === "string") return c.replace(/^"(.*)"$/, "$1");
     if (typeof c === "number") return String(c);
   }
   return "";
@@ -58,7 +58,7 @@ ${rowsHtml}
 </section>`;
 }
 
-function renderOverview(record: Record<string, unknown>): string {
+function renderOverview(record: Record<string, unknown>, familyQuery: string, collection: string): string {
   const type = typeof record.type === "string" ? record.type : "";
   const chips: string[] = [];
   if (type) chips.push(`<span class="chip chip-type">${escapeHtml(type)}</span>`);
@@ -130,6 +130,7 @@ function renderOverview(record: Record<string, unknown>): string {
     return `<div class="ov-row"><span class="ov-key">${escapeHtml(roleLabel || "contributor")}</span><span>${escapeHtml(name)}</span></div>`;
   }).join("");
 
+
   const links = asArray(record.source as unknown[]).map((l) => {
     const obj = (typeof l === "object" && l !== null ? l : {}) as Record<string, unknown>;
     const url = contentOf(l);
@@ -198,6 +199,18 @@ ${section("copyright", "Copyright", copyrightHtml)}
 `;
 }
 
+function primaryDocidText(record: Record<string, unknown> | null, fallback: string): string {
+  if (record && Array.isArray(record.docidentifier)) {
+    for (const d of record.docidentifier as unknown[]) {
+      const obj = (typeof d === "object" && d !== null ? d : {}) as Record<string, unknown>;
+      if (obj.primary === true) return contentOf(obj.content) || fallback;
+    }
+    const first = (record.docidentifier as unknown[])[0];
+    return contentOf(first) || fallback;
+  }
+  return fallback;
+}
+
 export interface RecordPageInput {
   collection: string;
   key: string;
@@ -214,6 +227,15 @@ export function renderRecordPage({ collection, key, docid, body }: RecordPageInp
   const anchor = slugAnchor(docid);
   const yamlText = item ? toYaml(item) : null;
   const asciibib = item ? toAsciiBib(item, anchor) : null;
+
+  // Series family: the docid minus its year and trailing part/edition
+  // segment — "ISO 19115-3:2023" → "ISO 19115", "S-100" → "S". Scoped to
+  // the collection so the letter/number families stay inside their series
+  // space; matches siblings through the LIKE search.
+  const docidForFamily = primaryDocidText(record, docid);
+  const familyQuery =
+    docidForFamily.replace(/:[-–]?\d{4}(?=[^-]*$)/, "").replace(/[-–][\d.]+$/, "").trim() ||
+    docidForFamily;
 
   const entryPath = `/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key)}`;
   const iso690 = item ? toIso690(item) : "";
@@ -250,7 +272,7 @@ Fields are explained on <a href="https://www.relaton.org/model/" target="_blank"
     panes.push(`<pre id="pane-${id}" role="tabpanel" aria-labelledby="tab-btn-${id}"${first ? "" : " hidden"}>${contentHtml}</pre>`);
   };
 
-  if (record) addTab("overview", "Overview", renderOverview(record));
+  if (record) addTab("overview", "Overview", renderOverview(record, familyQuery, collection));
   if (yamlText) addTab("yaml", "Relaton YAML", highlightYaml(yamlText));
   addTab("xml", isXml ? "Relaton XML" : "Source", highlightXml(body));
   if (asciibib) addTab("asciibib", "AsciiBib", escapeHtml(asciibib));

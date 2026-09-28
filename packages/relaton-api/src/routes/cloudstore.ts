@@ -1,6 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../env";
-import { renderCollections, renderEntry, wantsHtml } from "./cloudstore_ui";
+import { renderCollections, renderEntry, wantsHtml, findEntryRow } from "./cloudstore_ui";
 import { renderSearchPage } from "./search";
 
 // The lutaml cloud store contract (spike distilled from this API and
@@ -161,10 +161,7 @@ cloudStoreRoutes.openapi(entryRoute, async (c) => {
     });
   }
 
-  const row = await c.env.DB.prepare(
-    "SELECT docid, r2_key FROM documents WHERE flavor = ? AND r2_key = ?",
-  ).bind(collection, `${collection}/${key}`).first<EntryRow>();
-
+  const row = await findEntryRow(c.env.DB, collection, key);
   if (!row) {
     return c.text(`no such entry: ${key}`, 404);
   }

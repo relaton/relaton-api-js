@@ -63,17 +63,28 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
   const chips: string[] = [];
   if (type) chips.push(`<span class="chip chip-type">${escapeHtml(type)}</span>`);
 
+  // ISO stage codes are meaningless to consumers — translate the common ones.
+  const STAGE_WORDS: Record<string, string> = {
+    "60.60": "Published", "60.00": "Published", "50.00": "Final draft",
+    "50.20": "Final draft", "40.00": "Draft", "40.20": "Draft",
+    "90.92": "Withdrawn", "90.93": "Withdrawn", "95.99": "Withdrawn",
+    "90.60": "Under review", "60.98": "Cancelled",
+  };
   const status = record.status as Record<string, unknown> | undefined;
   if (typeof status === "object" && status !== null) {
     const stage = contentOf(status.stage);
     const substage = contentOf(status.substage);
-    const label = stage && substage ? `${stage}.${substage}` : stage || substage;
-    if (label) chips.push(`<span class="chip chip-status">status ${escapeHtml(label)}</span>`);
+    const code = stage && substage ? `${stage}.${substage}` : stage || substage;
+    if (code) {
+      const label = STAGE_WORDS[code] ?? `Stage ${code}`;
+      chips.push(`<span class="chip chip-status">${escapeHtml(label)}</span>`);
+    }
   }
   const edition = contentOf(record.edition);
-  if (edition) chips.push(`<span class="chip">edition ${escapeHtml(edition)}</span>`);
-  for (const lang of asArray(record.language).slice(0, 3)) {
-    chips.push(`<span class="chip">${escapeHtml(String(lang))}</span>`);
+  if (edition) chips.push(`<span class="chip">Edition ${escapeHtml(edition)}</span>`);
+  const langCodes = asArray(record.language).map(String);
+  if (langCodes.length) {
+    chips.push(`<span class="chip">${escapeHtml(langCodes.map((l) => l.toUpperCase()).join(" · "))}</span>`);
   }
 
   const identifiers = asArray(record.docidentifier as unknown[]).map((d) => {
@@ -88,20 +99,63 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
       : escapeHtml(id);
     return `<span class="docid-badge${primary}">${inner}${typeAttr ? ` <small>${typeAttr}</small>` : ""}</span>`;
   }).join("");
-  const titles = asArray(record.title as unknown[]).map((t) => {
+  // Titles: compose one heading per language from the decomposed parts
+  // (intro/main/part, else the composite). Model type tags stay internal;
+  // the primary language heads the page, translations render beneath it.
+  const LANG_NAMES: Record<string, string> = {
+    en: "English", fr: "French", de: "German", es: "Spanish", it: "Italian",
+    zh: "Chinese", ja: "Japanese", ko: "Korean", ru: "Russian", ar: "Arabic",
+    pt: "Portuguese", nl: "Dutch", sv: "Swedish", no: "Norwegian", da: "Danish",
+    fi: "Finnish", pl: "Polish", cs: "Czech", tr: "Turkish", hu: "Hungarian",
+    el: "Greek", he: "Hebrew", th: "Thai", vi: "Vietnamese", uk: "Ukrainian",
+    ro: "Romanian", bg: "Bulgarian", hr: "Croatian", sk: "Slovak", sl: "Slovenian",
+    et: "Estonian", lv: "Latvian", lt: "Lithuanian", sr: "Serbian", id: "Indonesian",
+    ms: "Malay", fa: "Persian", hi: "Hindi", bn: "Bengali", la: "Latin",
+  };
+  type TitleSlots = { intro: string; main: string; part: string; composite: string };
+  const titlesByLang = new Map<string, TitleSlots>();
+  for (const t of asArray(record.title as unknown[])) {
     const obj = (typeof t === "object" && t !== null ? t : {}) as Record<string, unknown>;
     const text = contentOf(t);
-    if (!text) return "";
-    const notes = [
-      typeof obj.language === "string" ? escapeHtml(obj.language) : "",
-      obj.type === "main" ? "" : typeof obj.type === "string" ? escapeHtml(obj.type) : "",
-    ].filter(Boolean).join(" · ");
-    return `<div class="ov-title">${escapeHtml(text)}${notes ? ` <small>${notes}</small>` : ""}</div>`;
-  }).join("");
+    if (!text) continue;
+    const lang = typeof obj.language === "string" ? obj.language.toLowerCase() : "";
+    const slot = titlesByLang.get(lang) ?? { intro: "", main: "", part: "", composite: "" };
+    if (obj.type === "title-intro") slot.intro ||= text;
+    else if (obj.type === "title-part") slot.part ||= text;
+    else if (obj.type === "main") slot.composite ||= text;
+    else slot.main ||= text;
+    titlesByLang.set(lang, slot);
+  }
+  const composedOf = (s: TitleSlots): string => {
+    const base = [s.intro, s.main].filter(Boolean).join(" — ") || s.composite;
+    return [base, s.part].filter(Boolean).join(" — ");
+  };
+  const langs = [...titlesByLang.keys()];
+  const primaryLang = langs.includes("en") ? "en" : langs[0] ?? "";
+  const primaryTitle = titlesByLang.has(primaryLang) ? composedOf(titlesByLang.get(primaryLang)!) : "";
+  const translations = langs
+    .filter((l) => l !== primaryLang)
+    .map((l) => ({ lang: l, title: composedOf(titlesByLang.get(l)!) }))
+    .filter((x) => x.title && x.title !== primaryTitle)
+    .map((x) => {
+      const name = LANG_NAMES[x.lang] ?? x.lang.toUpperCase();
+      return `<p class="doc-alt">${escapeHtml(x.title)} <span class="doc-lang">${escapeHtml(name)}</span></p>`;
+    })
+    .join("");
 
   const dates = asArray(record.date as unknown[]).map((d) => {
     const obj = (typeof d === "object" && d !== null ? d : {}) as Record<string, unknown>;
-    const typeAttr = typeof obj.type === "string" ? escapeHtml(obj.type) : "date";
+    const DATE_LABELS: Record<string, string> = {
+      published: "Published", issued: "Published", created: "Created", updated: "Updated",
+      obsoleted: "Obsoleted", confirmed: "Confirmed", corrected: "Corrected",
+      amended: "Amended", accessed: "Accessed", implemented: "Implemented",
+      transmitted: "Transmitted", circulated: "Circulated", adapted: "Adapted",
+      announced: "Announced", "vote-started": "Vote started", "vote-ended": "Vote ended",
+      "stable-until": "Stable until", copied: "Copied", unchanged: "Unchanged",
+    };
+    const typeAttr = typeof obj.type === "string"
+      ? (DATE_LABELS[obj.type] ?? obj.type.replace(/^./, (c) => c.toUpperCase()))
+      : "Date";
     const value = contentOf(obj.at);
     const from = contentOf(obj.from);
     const to = contentOf(obj.to);
@@ -113,7 +167,12 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
   const contributors = asArray(record.contributor as unknown[]).map((c) => {
     const obj = (typeof c === "object" && c !== null ? c : {}) as Record<string, unknown>;
     const role = obj.role;
-    const roleLabel = Array.isArray(role) ? contentOf(role[0]) : contentOf(role);
+    const rawRole = Array.isArray(role) ? contentOf(role[0]) : contentOf(role);
+    const ROLE_LABELS: Record<string, string> = {
+      publisher: "Published by", author: "Written by", performer: "Performed by",
+      editor: "Edited by", translator: "Translated by", distributor: "Distributed by",
+    };
+    const roleLabel = ROLE_LABELS[rawRole] ?? rawRole.replace(/^./, (c) => c.toUpperCase());
     const org = obj.organization as Record<string, unknown> | undefined;
     const person = obj.person as Record<string, unknown> | undefined;
     let name = "";
@@ -127,15 +186,28 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
         [contentOf(personName?.given), contentOf(personName?.surname)].filter(Boolean).join(" ");
     }
     if (!name) return "";
-    return `<div class="ov-row"><span class="ov-key">${escapeHtml(roleLabel || "contributor")}</span><span>${escapeHtml(name)}</span></div>`;
+    return `<div class="ov-row"><span class="ov-key">${escapeHtml(roleLabel || "Contributor")}</span><span>${escapeHtml(name)}</span></div>`;
+  });
+  const seenContrib = new Set<string>();
+  const contributorsHtml = contributors.filter((row) => {
+    const key = row.replace(/<[^>]+>/g, "");
+    if (seenContrib.has(key)) return false;
+    seenContrib.add(key);
+    return true;
   }).join("");
 
   const links = asArray(record.source as unknown[]).map((l) => {
     const obj = (typeof l === "object" && l !== null ? l : {}) as Record<string, unknown>;
     const url = contentOf(l);
+    const SOURCE_LABELS: Record<string, string> = {
+      src: "Source", obp: "Online browsing", rss: "RSS feed", doi: "DOI",
+      git: "Repository", email: "Email", uri: "URI", issn: "ISSN", isbn: "ISBN",
+    };
     if (!url || !/^https?:\/\//.test(url)) return "";
-    const typeAttr = typeof obj.type === "string" ? ` <small>${escapeHtml(obj.type)}</small>` : "";
-    return `<div class="ov-row"><span><a href="${escapeHtml(url)}" target="_blank" rel="noopener">${escapeHtml(url.length > 72 ? url.slice(0, 72) + "…" : url)}</a>${typeAttr}</div>`;
+    const sourceType = typeof obj.type === "string" ? obj.type : "";
+    const label = SOURCE_LABELS[sourceType] ?? "Link";
+    const host = new URL(url).host.replace(/^www\./, "");
+    return `<div class="ov-row"><span class="ov-key">${escapeHtml(label)}</span><span><a href="${escapeHtml(url)}" target="_blank" rel="noopener" title="${escapeHtml(url)}">${escapeHtml(host)}</a></span></div>`;
   }).join("");
 
   const abstracts = asArray(record.abstract as unknown[]).map((a) => {
@@ -204,10 +276,11 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
   return `
 <div class="ov-chips">${chips.join("")}</div>
 ${identifiers ? `<div class="ov-docids">${identifiers}</div>` : ""}
+${primaryTitle ? `<h1 class="doc-h1">${escapeHtml(primaryTitle)}</h1>` : ""}
+${translations}
 ${familyQuery ? `<div class="ov-series"><a class="series-link" href="/collections/${escapeHtml(collection)}?q=${encodeURIComponent(familyQuery)}">other documents in the ${escapeHtml(familyQuery)} series ↗</a></div>` : ""}
-${titles}
-${section("date", "Publication", dates + (edition ? `<div class="ov-row"><span class="ov-key">edition</span><span>${escapeHtml(edition)}</span></div>` : ""))}
-${section("contributor", "Contributors", contributors)}
+${section("date", "Publication", dates)}
+${section("contributor", "Contributors", contributorsHtml)}
 ${section("link", "Links", links)}
 ${abstracts ? `<section class="ov-section"><h3>${fieldLabel("abstract", "Abstract")}</h3>${abstracts}</section>` : ""}
 ${keywords ? `<section class="ov-section"><h3>${fieldLabel("keyword", "Keywords")}</h3><div class="ov-chips">${keywords}</div></section>` : ""}
@@ -363,8 +436,9 @@ export const RECORD_CSS = `
   .docid-badge.primary { outline: 1px solid var(--accent-soft); }
   .docid-badge a { color: inherit; }
   .docid-badge small { color: var(--muted); font-size: 11px; }
-  .ov-title { font-size: 17px; line-height: 1.5; margin: 2px 0; }
-  .ov-title small { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .doc-h1 { font-size: 27px; font-weight: 700; line-height: 1.25; margin: 12px 0 4px; letter-spacing: -0.01em; }
+  .doc-alt { color: var(--muted); font-size: 14px; margin: 0 0 2px; }
+  .doc-lang { font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; margin-left: 8px; }
   .ov-section { margin: 22px 0; }
   .ov-section h3 {
     font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;

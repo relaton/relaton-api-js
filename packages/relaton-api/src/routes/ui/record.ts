@@ -59,49 +59,22 @@ ${rowsHtml}
 }
 
 function renderOverview(record: Record<string, unknown>, familyQuery: string, collection: string): string {
+  // The record reads as a catalogue card: a language-neutral call number
+  // heads it, and every field — title languages included — is an equally
+  // weighted, labeled row. Standards are multilingual by institution;
+  // no language is a "translation" of another.
   const type = typeof record.type === "string" ? record.type : "";
-  const chips: string[] = [];
-  if (type) chips.push(`<span class="chip chip-type">${escapeHtml(type)}</span>`);
 
-  // ISO stage codes are meaningless to consumers — translate the common ones.
-  const STAGE_WORDS: Record<string, string> = {
+  // Each publisher speaks its own status vocabulary (ISO stage codes, RFC
+  // states, BSI current/withdrawn, ...). Codes known to be opaque get a
+  // reader-friendly form; every other value renders verbatim.
+  const STATUS_WORDS: Record<string, string> = {
     "60.60": "Published", "60.00": "Published", "50.00": "Final draft",
     "50.20": "Final draft", "40.00": "Draft", "40.20": "Draft",
     "90.92": "Withdrawn", "90.93": "Withdrawn", "95.99": "Withdrawn",
     "90.60": "Under review", "60.98": "Cancelled",
   };
-  const status = record.status as Record<string, unknown> | undefined;
-  if (typeof status === "object" && status !== null) {
-    const stage = contentOf(status.stage);
-    const substage = contentOf(status.substage);
-    const code = stage && substage ? `${stage}.${substage}` : stage || substage;
-    if (code) {
-      const label = STAGE_WORDS[code] ?? `Stage ${code}`;
-      chips.push(`<span class="chip chip-status">${escapeHtml(label)}</span>`);
-    }
-  }
-  const edition = contentOf(record.edition);
-  if (edition) chips.push(`<span class="chip">Edition ${escapeHtml(edition)}</span>`);
-  const langCodes = asArray(record.language).map(String);
-  if (langCodes.length) {
-    chips.push(`<span class="chip">${escapeHtml(langCodes.map((l) => l.toUpperCase()).join(" · "))}</span>`);
-  }
 
-  const identifiers = asArray(record.docidentifier as unknown[]).map((d) => {
-    const obj = (typeof d === "object" && d !== null ? d : { id: String(d) }) as Record<string, unknown>;
-    const id = contentOf(obj.content) || (typeof d === "string" ? d : "");
-    if (!id) return "";
-    const typeAttr = typeof obj.type === "string" ? escapeHtml(String(obj.type)) : "";
-    const primary = obj.primary === true ? " primary" : "";
-    const isDoi = typeAttr === "DOI" || /^10\.\d+\//.test(id);
-    const inner = isDoi
-      ? `<a href="https://doi.org/${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)} ↗</a>`
-      : escapeHtml(id);
-    return `<span class="docid-badge${primary}">${inner}${typeAttr ? ` <small>${typeAttr}</small>` : ""}</span>`;
-  }).join("");
-  // Titles: compose one heading per language from the decomposed parts
-  // (intro/main/part, else the composite). Model type tags stay internal;
-  // the primary language heads the page, translations render beneath it.
   const LANG_NAMES: Record<string, string> = {
     en: "English", fr: "French", de: "German", es: "Spanish", it: "Italian",
     zh: "Chinese", ja: "Japanese", ko: "Korean", ru: "Russian", ar: "Arabic",
@@ -112,6 +85,58 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
     et: "Estonian", lv: "Latvian", lt: "Lithuanian", sr: "Serbian", id: "Indonesian",
     ms: "Malay", fa: "Persian", hi: "Hindi", bn: "Bengali", la: "Latin",
   };
+  const langName = (code: string): string =>
+    LANG_NAMES[code.toLowerCase()] ?? (code ? code.toUpperCase() : "");
+
+  const docids = asArray(record.docidentifier as unknown[]);
+  const headingDocid = (() => {
+    const pick = docids.find((d) =>
+      typeof d === "object" && d !== null && (d as Record<string, unknown>).primary === true);
+    const first = (pick ?? docids[0]) as Record<string, unknown> | undefined;
+    return first ? (contentOf(first) || (typeof first === "string" ? first : "")) : "";
+  })();
+
+  // Identifiers: labeled rows keyed by the identifier type; DOIs resolve.
+  const identifierRows = docids.map((d) => {
+    const obj = (typeof d === "object" && d !== null ? d : {}) as Record<string, unknown>;
+    const id = contentOf(obj) || (typeof d === "string" ? d : "");
+    if (!id) return "";
+    const rawIdType = typeof obj.type === "string" ? obj.type : "";
+    const ID_TYPE_LABELS: Record<string, string> = {
+      "iso-undated": "ISO (undated)", "iso-reference": "ISO (reference)",
+      "iso-tc": "ISO (TC)", ISSN: "ISSN", ISBN: "ISBN", URN: "URN", DOI: "DOI",
+    };
+    const idType = ID_TYPE_LABELS[rawIdType] ?? rawIdType;
+    const isDoi = idType === "DOI" || /^10\.\d+\//.test(id);
+    const value = isDoi
+      ? `<a href="https://doi.org/${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)} ↗</a>`
+      : `<code>${escapeHtml(id)}</code>`;
+    const primary = obj.primary === true ? ` <span class="row-note">primary</span>` : "";
+    return `<div class="ov-row"><span class="ov-key">${escapeHtml(idType || "Identifier")}</span><span class="ov-value">${value}${primary}</span></div>`;
+  }).join("");
+
+  // Record facts as labeled fields — never as tags.
+  const facts: [string, string][] = [];
+  if (type) facts.push(["Type", type.replace(/(^|[\s_-])(\p{L})/gu, (m, s, c) => s + c.toUpperCase())]);
+  {
+    const status = record.status as Record<string, unknown> | undefined;
+    if (typeof status === "object" && status !== null) {
+      const stage = contentOf(status.stage);
+      const substage = contentOf(status.substage);
+      const code = stage && substage ? `${stage}.${substage}` : stage || substage;
+      if (code) facts.push(["Status", STATUS_WORDS[code] ?? code]);
+    }
+  }
+  const edition = contentOf(record.edition);
+  if (edition) facts.push(["Edition", edition]);
+  const langList = asArray(record.language).map(String).map(langName).filter(Boolean).join(", ");
+  if (langList) facts.push(["Languages", langList]);
+  const factRows = facts
+    .map(([k, v]) => `<div class="ov-row"><span class="ov-key">${escapeHtml(k)}</span><span class="ov-value">${escapeHtml(v)}</span></div>`)
+    .join("");
+
+  // Titles: one composed title per language, rendered as parallel,
+  // first-class rows. Model type tags stay internal.
   type TitleSlots = { intro: string; main: string; part: string; composite: string };
   const titlesByLang = new Map<string, TitleSlots>();
   for (const t of asArray(record.title as unknown[])) {
@@ -131,15 +156,14 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
     return [base, s.part].filter(Boolean).join(" — ");
   };
   const langs = [...titlesByLang.keys()];
-  const primaryLang = langs.includes("en") ? "en" : langs[0] ?? "";
-  const primaryTitle = titlesByLang.has(primaryLang) ? composedOf(titlesByLang.get(primaryLang)!) : "";
-  const translations = langs
-    .filter((l) => l !== primaryLang)
-    .map((l) => ({ lang: l, title: composedOf(titlesByLang.get(l)!) }))
-    .filter((x) => x.title && x.title !== primaryTitle)
-    .map((x) => {
-      const name = LANG_NAMES[x.lang] ?? x.lang.toUpperCase();
-      return `<p class="doc-alt">${escapeHtml(x.title)} <span class="doc-lang">${escapeHtml(name)}</span></p>`;
+  const headingLang = langs.includes("en") ? "en" : langs[0] ?? "";
+  const headingTitle = titlesByLang.has(headingLang) ? composedOf(titlesByLang.get(headingLang)!) : "";
+  const otherTitleRows = langs
+    .filter((l) => l !== headingLang)
+    .map((l) => {
+      const title = composedOf(titlesByLang.get(l)!);
+      if (!title || title === headingTitle) return "";
+      return `<div class="title-row"><span class="title-lang">${escapeHtml(langName(l))}</span><span class="title-text">${escapeHtml(title)}</span></div>`;
     })
     .join("");
 
@@ -274,12 +298,11 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
   }
 
   return `
-<div class="ov-chips">${chips.join("")}</div>
-${identifiers ? `<div class="ov-docids">${identifiers}</div>` : ""}
-${primaryTitle ? `<h1 class="doc-h1">${escapeHtml(primaryTitle)}</h1>` : ""}
-${translations}
+${headingDocid ? `<p class="doc-number"><code>${escapeHtml(headingDocid)}</code></p>` : ""}
+${headingTitle ? `<h1 class="doc-h1">${escapeHtml(headingTitle)}</h1>` : ""}
+${otherTitleRows ? `<div class="title-parallel">${otherTitleRows}</div>` : ""}
+${(factRows || identifierRows || dates) ? `<section class="ov-section"><h3>General information</h3>${factRows}${identifierRows}${dates}</section>` : ""}
 ${familyQuery ? `<div class="ov-series"><a class="series-link" href="/collections/${escapeHtml(collection)}?q=${encodeURIComponent(familyQuery)}">other documents in the ${escapeHtml(familyQuery)} series ↗</a></div>` : ""}
-${section("date", "Publication", dates)}
 ${section("contributor", "Contributors", contributorsHtml)}
 ${section("link", "Links", links)}
 ${abstracts ? `<section class="ov-section"><h3>${fieldLabel("abstract", "Abstract")}</h3>${abstracts}</section>` : ""}
@@ -436,9 +459,24 @@ export const RECORD_CSS = `
   .docid-badge.primary { outline: 1px solid var(--accent-soft); }
   .docid-badge a { color: inherit; }
   .docid-badge small { color: var(--muted); font-size: 11px; }
-  .doc-h1 { font-size: 27px; font-weight: 700; line-height: 1.25; margin: 12px 0 4px; letter-spacing: -0.01em; }
-  .doc-alt { color: var(--muted); font-size: 14px; margin: 0 0 2px; }
-  .doc-lang { font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; margin-left: 8px; }
+  .doc-number { margin: 0; font-size: 14px; }
+  .doc-number code {
+    font-family: var(--mono); font-size: 19px; font-weight: 600; letter-spacing: 0.01em;
+    background: none; color: var(--fg); padding: 0; border: 0;
+  }
+  .doc-h1 { font-size: 26px; font-weight: 700; line-height: 1.25; margin: 2px 0 8px; letter-spacing: -0.01em; }
+  .row-note { font-size: 11px; color: var(--muted); margin-left: 8px; }
+  .ov-value code { font-family: var(--mono); font-size: 13.5px; background: var(--bg-soft); padding: 1px 6px; border-radius: 4px; }
+  .title-parallel { border-left: 1px solid var(--border); }
+  .title-row {
+    display: grid; grid-template-columns: 108px 1fr; gap: 14px; align-items: baseline;
+    padding: 8px 0 8px 14px; position: relative;
+  }
+  .title-row + .title-row { border-top: 1px dashed var(--border); }
+  .title-lang {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted);
+  }
+  .title-text { font-size: 17.5px; line-height: 1.4; font-weight: 500; }
   .ov-section { margin: 22px 0; }
   .ov-section h3 {
     font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;

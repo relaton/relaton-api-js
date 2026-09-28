@@ -39,6 +39,7 @@ const CSS = `
     border-radius: 8px; text-decoration: none; color: var(--fg); background: var(--bg); }
   .pager .info { margin-right: auto; color: var(--muted); border: none; background: none; }
   .empty { color: var(--muted); padding: 32px 0; text-align: center; }
+  .coll-logo { height: 34px; width: auto; vertical-align: middle; margin-right: 10px; }
 `;
 
 function facetHref(current: URLSearchParams, dimension: string, value: string): string {
@@ -152,6 +153,9 @@ export async function renderSearchPage(db: D1Database, url: URL, opts: SearchPag
       renderFacet(qs, "status", params.status, result.facets.status);
 
   const hidden = opts.scopeFlavor ? `<input type="hidden" name="flavor" value="${escapeHtml(opts.scopeFlavor)}">` : "";
+  const logoSrc = opts.scopeFlavor && /^[a-z0-9-]+$/.test(opts.scopeFlavor)
+    ? `https://www.relaton.org/logos/${opts.scopeFlavor}${["omg", "cenelec"].includes(opts.scopeFlavor) ? "-logo.png" : "-logo.svg"}`
+    : null;
   const scopeMeta = opts.scopeFlavor
     ? `<p class="meta"><a href="/collections/${escapeHtml(opts.scopeFlavor)}/manifest">manifest.json</a> ·
 <a href="/collections">all collections</a> ·
@@ -159,7 +163,7 @@ export async function renderSearchPage(db: D1Database, url: URL, opts: SearchPag
     : "";
 
   const body = `
-<h1>${opts.title ?? "Search"}</h1>
+<h1>${logoSrc ? `<img class="coll-logo" src="${logoSrc}" alt="" onerror="this.remove()">` : ""}${opts.title ?? "Search"}</h1>
 ${scopeMeta}
 <form class="search-bar" method="get" action="${action}">
   <input name="q" value="${escapeHtml(params.q ?? "")}" placeholder="Publication identifier or title — e.g. ISO 19115, TLS, risk assessment…" aria-label="Search">

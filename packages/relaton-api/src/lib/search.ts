@@ -42,7 +42,6 @@ export interface SearchResult {
 }
 
 const SORTS: Record<string, string> = {
-  relevance: "docid IS NULL, docid ASC",
   year_desc: "year DESC, docid ASC",
   year_asc: "year ASC, docid ASC",
   docid: "docid ASC",
@@ -129,17 +128,29 @@ export async function searchDocuments(
   const page = Math.max(0, params.page ?? 0);
   const size = Math.min(100, Math.max(10, params.size ?? 25));
   const { where, bind } = buildWhere(params, opts);
-  const order = SORTS[params.sort ?? "relevance"] ?? SORTS.relevance;
+  const sort = params.sort ?? "relevance";
 
   const totalRow = await db.prepare(
     `SELECT COUNT(*) AS n FROM documents ${where}`,
   ).bind(...bind).first<{ n: number }>();
   const total = totalRow?.n ?? 0;
 
+  // Relevance ranks exact docid matches first, then docid prefixes —
+  // "ISO 9001" must find ISO 9001:2015 above ISO 10017 (which sorts
+  // before it alphabetically because "1" < "9").
+  let order: string;
+  const orderBind: unknown[] = [];
+  if (sort === "relevance" && params.q) {
+    order = `CASE WHEN docid = ? THEN 0 WHEN docid LIKE ? THEN 1 ELSE 2 END, year DESC, docid ASC`;
+    orderBind.push(params.q, `${params.q}%`);
+  } else {
+    order = SORTS[sort] ?? "year DESC, docid ASC";
+  }
+
   const { results } = await db.prepare(
     `SELECT flavor, r2_key, docid, year, doctype, status, title_en, norm
      FROM documents ${where} ORDER BY ${order} LIMIT ${size + 1} OFFSET ${page * size}`,
-  ).bind(...bind).all<SearchHit>();
+  ).bind(...bind, ...orderBind).all<SearchHit>();
 
   const rows = results ?? [];
   const items = rows.slice(0, size);

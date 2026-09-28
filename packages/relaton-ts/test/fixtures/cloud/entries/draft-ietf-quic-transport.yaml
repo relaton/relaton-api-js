@@ -1,0 +1,15 @@
+---
+id: draft-ietf-quic-transport
+schema_version: v1.5.6
+type: standard
+docidentifier:
+- content: draft-ietf-quic-transport
+  type: Internet-Draft
+  primary: true
+date:
+- type: published
+  at: "2021-05"
+ext:
+  flavor: ietf
+  doctype:
+    content: internet-draft

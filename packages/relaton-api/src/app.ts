@@ -7,7 +7,7 @@ import { restRoutes } from "./routes/rest";
 import { cloudStoreRoutes } from "./routes/cloudstore";
 import { graphqlRoute } from "./routes/graphql";
 import { renderHome } from "./routes/home";
-import { renderCreatePage } from "./routes/create";
+import { renderCreatePage, renderCreatePreview, type CreatePayload } from "./routes/create";
 
 export function createApp(configInput: unknown = {}) {
   const config: RelatonApiConfig = parseConfig(configInput);
@@ -46,6 +46,10 @@ export function createApp(configInput: unknown = {}) {
   app.get("/", async (c) => c.html(await renderHome(c.env.DB, c.env.API_VERSION ?? "dev", config.name)));
 
   app.get("/create", (c) => c.html(renderCreatePage()));
+  app.post("/create/preview", async (c) => {
+    const payload = await c.req.json<CreatePayload>().catch(() => ({}));
+    return c.json(renderCreatePreview(payload));
+  });
 
   app.route("/", restRoutes);
   app.route("/", cloudStoreRoutes);

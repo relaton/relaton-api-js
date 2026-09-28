@@ -95,3 +95,32 @@ describe("toIso690", () => {
     expect(s).toContain("ISO, 2023.");
   });
 });
+
+import { fetchEntry, fetchDocid, isResolvablePubid } from "../src/cite";
+
+describe("cite utilities", () => {
+  const item = parseItem({
+    type: "standard",
+    docidentifier: [{ content: "ISO 19115-3:2023", type: "ISO", primary: true }],
+    title: [{ type: "main", content: "Geographic information" }],
+  });
+  expect(item.ok).toBe(true);
+  if (!item.ok) return;
+  const record = item.item;
+
+  it("emits the fetch entry with the derived anchor", () => {
+    expect(fetchEntry(record)).toBe("* [[[ISO-19115-3-2023,ISO 19115-3:2023]]]");
+  });
+
+  it("honors a user anchor, undated, and all-parts", () => {
+    expect(fetchEntry(record, { anchor: "my-ref" })).toBe("* [[[my-ref,ISO 19115-3:2023]]]");
+    expect(fetchEntry(record, { undated: true })).toBe("* [[[ISO-19115-3-2023,ISO 19115-3]]]");
+    expect(fetchEntry(record, { allParts: true })).toBe("* [[[ISO-19115-3-2023,ISO 19115 (all parts)]]]");
+    expect(fetchDocid("ISO 690-1:2016", { allParts: true })).toBe("ISO 690 (all parts)");
+  });
+
+  it("checks PubID resolvability via pubid-ts", () => {
+    expect(isResolvablePubid("ISO 19115-3:2023")).toBe(true);
+    expect(isResolvablePubid("NOT A PUBID %%%")).toBe(false);
+  });
+});

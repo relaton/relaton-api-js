@@ -104,6 +104,10 @@ const CORE_CSS = `
   .theme-toggle .icon-sun { display: none; }
   html.dark .theme-toggle .icon-sun { display: block; }
   html.dark .theme-toggle .icon-moon { display: none; }
+  .brand-logo { height: 26px; width: auto; display: block; }
+  .brand-logo.dark-only { display: none; }
+  html.dark .brand-logo.light-only { display: none; }
+  html.dark .brand-logo.dark-only { display: block; }
   .nav-burger { display: none; }
   @media (max-width: 960px) {
     .nav-links {
@@ -123,10 +127,6 @@ const CORE_CSS = `
   }
   footer a { color: var(--accent); }
 `;
-
-const BRAND_SVG = `<svg width="24" height="24" viewBox="0 0 351.24 351.66" fill="none" aria-hidden="true">
-      <path d="M276.31,242.07c-4.44,2.78-8.88,5.54-13.31,8.32c-24.96,15.62-49.91,31.25-74.9,46.83c-1.09,0.68-1.35,1.28-1.16,2.53c2.26,15.33-2.14,28.54-13.12,39.42c-7.38,7.31-16.42,11.41-26.79,12.32c-23.06,2.02-43.31-12.81-48.04-35.45c-2.97-14.23,0.47-27.08,9.77-38.3c0.63-0.76,0.68-1.2,0.16-2.03c-18.27-29.23-36.52-58.47-54.74-87.73c-0.45-0.72-0.9-0.94-1.73-0.8c-23.2,4.18-46.18-10.87-51.44-34.68c-5.32-24.06,10.58-48.68,34.73-53.38c14.55-2.83,27.47,0.68,38.74,10.3c0.09,0.08,0.19,0.14,0.4,0.3c0.32-0.2,0.69-0.41,1.05-0.64c29.19-18.27,58.38-36.55,87.58-54.81c0.71-0.45,0.96-0.87,0.81-1.72c-4.21-23.05,10.72-45.91,33.47-51.3c25.01-5.92,49.57,9.64,54.55,34.86c2.76,13.98-0.61,26.61-9.66,37.68c-0.33,0.4-0.67,0.79-1.03,1.22c3.53,5.65,7.04,11.27,10.54,16.89c14.9,23.89,29.8,47.78,44.69,71.69c0.5,0.8,0.96,1.17,1.98,0.98c21.29-3.76,42.25,8.46,49.67,28.91c9.37,25.82-6.6,54.21-33.54,59.31c-14.16,2.68-26.86-0.8-37.92-10.08C276.84,242.51,276.6,242.31,276.31,242.07z" fill="currentColor" opacity="0.9"/>
-    </svg>`;
 
 export function layout({ title, body, css, activeNav }: LayoutOptions): string {
   const navLinks = NAV.map((item) => {
@@ -160,7 +160,8 @@ export function layout({ title, body, css, activeNav }: LayoutOptions): string {
 <header class="site-header">
 <nav>
   <a class="brand" href="/" title="Relaton API">
-    ${BRAND_SVG}
+    <img class="brand-logo light-only" src="https://www.relaton.org/logo-light.svg" alt="">
+    <img class="brand-logo dark-only" src="https://www.relaton.org/logo-dark.svg" alt="">
     Relaton API
   </a>
   <button class="nav-icon nav-burger" aria-label="Toggle navigation" aria-expanded="false" data-nav-burger>

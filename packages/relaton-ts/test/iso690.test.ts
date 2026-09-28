@@ -52,6 +52,31 @@ describe("toIso690", () => {
     expect(s).toContain("https://inspire.ec.europa.eu/registry (2020).");
   });
 
+  it("renders decomposed ISO titles in one language, dropping translations (live ISO 19115-3 shape)", () => {
+    const parsed = parseItem({
+      type: "standard",
+      docidentifier: [{ content: "ISO 19115-3:2023", type: "ISO", primary: true }],
+      title: [
+        { type: "title-intro", language: "en", content: "Geographic information" },
+        { type: "title-main", language: "en", content: "Metadata" },
+        { type: "title-part", language: "en", content: "Part 3: XML schema implementation for fundamental concepts" },
+        { type: "main", language: "en", content: "Geographic information - Metadata - Part 3" },
+        { type: "title-intro", language: "fr", content: "Information géographique" },
+        { type: "title-main", language: "fr", content: "Métadonnées" },
+        { type: "title-part", language: "fr", content: "Partie 3: Mise en oeuvre par des schémas XML" },
+        { type: "main", language: "fr", content: "Information géographique - Métadonnées" },
+      ],
+      contributor: [{ role: [{ type: "publisher" }], organization: { name: [{ content: "ISO" }] } }],
+      date: [{ type: "published", at: "2023-08" }],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const s = toIso690(parsed.item);
+    expect(s).toBe("ISO 19115-3:2023, Geographic information — Metadata — Part 3: XML schema implementation for fundamental concepts. ISO, 2023.");
+    expect(s).not.toContain("Partie");
+    expect(s).not.toContain("géographique");
+  });
+
   it("appends title-part after the main title", () => {
     const parsed = parseItem({
       type: "standard",

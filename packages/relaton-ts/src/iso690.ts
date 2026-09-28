@@ -33,7 +33,7 @@ function segs(...parts: string[]): string {
 interface Rec {
   type?: string;
   docidentifier?: { content?: string; type?: string; primary?: boolean }[];
-  title?: { content?: string; type?: string }[];
+  title?: { content?: string; type?: string; language?: string }[];
   date?: { type?: string; at?: string; from?: string }[];
   contributor?: {
     role?: { type?: string }[];
@@ -72,18 +72,30 @@ function primaryDocid(rec: Rec): string {
   return contentOf(primary) || "";
 }
 
-function mainTitle(rec: Rec): { main?: string; part?: string } {
-  let main: string | undefined;
-  let part: string | undefined;
-  for (const t of rec.title ?? []) {
-    const content = contentOf(t);
-    if (!content) continue;
-    // One title-part renders — the record's citation language; the first
-    // (document order) wins over translations.
-    if (t.type === "title-part") part = part ?? content;
-    else main = main ?? content;
+/**
+ * Titles come decomposed (title-intro / title-main / title-part per
+ * language) and/or as a composite type:"main" string per language. Pick
+ * one citation language (English preferred, else first seen) and build
+ * the full title from that language only.
+ */
+function fullTitleOf(rec: Rec): string {
+  const titles = (rec.title ?? []).filter((t) => contentOf(t));
+  const langOf = (t: { language?: string | undefined }) => (t.language ?? "").toLowerCase();
+  const langs = [...new Set(titles.map(langOf).filter(Boolean))];
+  const lang = langs.includes("en") ? "en" : langs[0] ?? "";
+  const ours = titles.filter((t) => (lang ? langOf(t) === lang : true));
+
+  // Decomposed titles (intro/main/part) compose the citation title; a lone
+  // composite type:"main" string (records without decomposition) is used
+  // as-is. Translations in other languages are dropped.
+  const intro = ours.find((t) => t.type === "title-intro");
+  const main = ours.find((t) => t.type === "title-main");
+  const part = ours.find((t) => t.type === "title-part");
+  const composite = ours.find((t) => t.type === "main");
+  if (intro || main) {
+    return [intro, main, part].filter((x) => x && contentOf(x)).map((x) => contentOf(x)).join(" — ");
   }
-  return { main, part };
+  return [composite, part].filter((x) => x && contentOf(x)).map((x) => contentOf(x)).join(" — ");
 }
 
 function yearOf(rec: Rec): string {
@@ -114,8 +126,7 @@ export function toIso690(item: RelatonItem): string {
   const rec = item as unknown as Rec;
   const type = rec.type ?? "";
   const docid = primaryDocid(rec);
-  const { main, part } = mainTitle(rec);
-  const fullTitle = [main, part].filter(Boolean).join(" — ");
+  const fullTitle = fullTitleOf(rec);
   const year = yearOf(rec);
   const edition = contentOf(rec.edition);
 

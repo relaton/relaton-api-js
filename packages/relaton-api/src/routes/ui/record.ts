@@ -196,6 +196,7 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
   return `
 <div class="ov-chips">${chips.join("")}</div>
 ${identifiers ? `<div class="ov-docids">${identifiers}</div>` : ""}
+${familyQuery ? `<div class="ov-series"><a class="series-link" href="/collections/${escapeHtml(collection)}?q=${encodeURIComponent(familyQuery)}">other documents in the ${escapeHtml(familyQuery)} series ↗</a></div>` : ""}
 ${titles}
 ${section("date", "Publication", dates + (edition ? `<div class="ov-row"><span class="ov-key">edition</span><span>${escapeHtml(edition)}</span></div>` : ""))}
 ${section("contributor", "Contributors", contributors)}

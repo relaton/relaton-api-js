@@ -11,8 +11,11 @@ export interface NavItem {
 
 const NAV: NavItem[] = [
   { text: "Overview", href: "/", id: "overview" },
+  { text: "Search", href: "/search", id: "search" },
   { text: "Collections", href: "/collections", id: "collections" },
   { text: "Create record", href: "/create", id: "create" },
+  { text: "Verify", href: "/verify", id: "verify" },
+  { text: "For AI", href: "/ai", id: "ai" },
   { text: "Reference", href: "/docs", id: "reference" },
   { text: "GraphQL", href: "/graphql", id: "graphql" },
 ];

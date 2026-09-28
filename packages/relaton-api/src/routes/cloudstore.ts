@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../env";
-import { renderCollectionPage, renderCollections, renderEntry, wantsHtml } from "./cloudstore_ui";
+import { renderCollections, renderEntry, wantsHtml } from "./cloudstore_ui";
+import { renderSearchPage } from "./search";
 
 // The lutaml cloud store contract (spike distilled from this API and
 // generalized; see TODO.relaton-cloud-store item 3):
@@ -96,16 +97,19 @@ cloudStoreRoutes.openapi(collectionsRoute, async (c) => {
   });
 });
 
-// Browsable collection page: search + pagination over the manifest.
+// Browsable collection page: the shared search engine scoped to one flavor.
 cloudStoreRoutes.get("/collections/:collection", async (c) => {
-  const page = await renderCollectionPage(
-    c.env.DB,
-    c.req.param("collection"),
-    c.req.query("q") ?? "",
-    Number(c.req.query("page") ?? "0") || 0,
-  );
-  if (!page) return c.text(`unknown collection: ${c.req.param("collection")}`, 404);
-  return c.html(page);
+  const collection = c.req.param("collection");
+  const flavor = await c.env.DB.prepare(
+    "SELECT flavor FROM flavors WHERE flavor = ?",
+  ).bind(collection).first();
+  if (!flavor) return c.text(`unknown collection: ${collection}`, 404);
+  const html = await renderSearchPage(c.env.DB, new URL(c.req.url), {
+    scopeFlavor: collection,
+    title: collection,
+    activeNav: "collections",
+  });
+  return c.html(html);
 });
 
 cloudStoreRoutes.openapi(manifestRoute, async (c) => {

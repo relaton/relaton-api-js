@@ -21,16 +21,26 @@ function makeEnv(opts: {
           return stmt;
         },
         first: async () => {
+          if (/COUNT\(\*\) AS n/.test(sql)) return { n: opts.docids.length };
           if (sql.includes("FROM flavors")) return opts.flavor;
           if (sql.includes("FROM documents")) return opts.entry;
           return null;
         },
         all: async () => {
+          if (/AS value, COUNT\(\*\) AS count/.test(sql)) {
+            return { results: [{ value: "standard", count: opts.docids.length }] };
+          }
           if (sql.includes("FROM documents")) {
             return {
               results: opts.docids.map((docid) => ({
+                flavor: "ietf",
                 docid,
                 r2_key: `ietf/${docid.toLowerCase()}`,
+                year: 2020,
+                doctype: null,
+                status: null,
+                title_en: null,
+                norm: docid,
               })),
             };
           }

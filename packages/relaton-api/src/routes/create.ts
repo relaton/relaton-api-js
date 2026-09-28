@@ -11,7 +11,7 @@ import { RECORD_CSS } from "./ui/record";
 // and the API can never drift apart.
 
 const TYPES = [
-  "standard", "article", "book", "report", "techreport", "website",
+  "standard", "article", "book", "techreport", "website",
   "software", "dataset", "presentation", "proceedings", "thesis",
   "patent", "manual", "electronic resource", "map", "misc",
 ];

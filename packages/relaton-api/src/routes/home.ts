@@ -64,6 +64,10 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
   <p class="tagline">Bibliographic data for technical standards, aggregated across the
   <a href="https://github.com/relaton" rel="noopener">relaton-data-*</a> repositories. Read-only, no authentication.</p>
   <p class="stats"><b>${flavors.length} flavors</b> · <b>${total.toLocaleString("en-US")} documents</b> indexed${lastIngest ? ` · last ingest ${escapeHtml(lastIngest.slice(0, 10))}` : ""} · release ${escapeHtml(version)}</p>
+  <form class="search" method="get" action="/search" style="margin:0 0 28px">
+    <input name="q" placeholder="Search every collection — identifier or title…" aria-label="Search the database">
+    <button type="submit">Search</button>
+  </form>
 
   <h2>Endpoints</h2>
   <div class="grid">

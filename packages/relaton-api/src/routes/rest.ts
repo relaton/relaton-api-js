@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../env";
 import { normalizeCode } from "pubid-ts";
 import { findDocument } from "../lib/lookup";
+import { searchDocuments } from "../lib/search";
 
 const QuerySchema = z.object({
   code: z.string().min(1).openapi({ example: "ISO 19115-1" }),
@@ -21,6 +22,49 @@ const documentRoute = createRoute({
     },
     400: { description: "Missing or invalid code parameter", content: { "text/plain": { schema: z.string() } } },
     404: { description: "Document not found", content: { "text/plain": { schema: z.string() } } },
+  },
+});
+
+const searchRoute = createRoute({
+  method: "get",
+  path: "/api/v1/search",
+  request: {
+    query: z.object({
+      q: z.string().optional().openapi({ example: "risk assessment" }),
+      flavor: z.string().optional().openapi({ example: "iso" }),
+      doctype: z.string().optional().openapi({ example: "standard" }),
+      status: z.string().optional(),
+      yearFrom: z.coerce.number().int().optional(),
+      yearTo: z.coerce.number().int().optional(),
+      sort: z.enum(["relevance", "year_desc", "year_asc", "docid"]).optional(),
+      page: z.coerce.number().int().min(0).optional(),
+      size: z.coerce.number().int().min(10).max(100).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: "Documents matching the query, with facet counts",
+      content: {
+        "application/json": {
+          schema: z.object({
+            total: z.number(),
+            page: z.number(),
+            size: z.number(),
+            items: z.array(z.object({
+              docid: z.string().nullable(),
+              flavor: z.string(),
+              year: z.number().nullable(),
+              doctype: z.string().nullable(),
+              status: z.string().nullable(),
+              title: z.string().nullable(),
+              html: z.string(),
+              api: z.string(),
+            })),
+            facets: z.record(z.string(), z.array(z.object({ value: z.string(), count: z.number() }))),
+          }),
+        },
+      },
+    },
   },
 });
 
@@ -73,6 +117,40 @@ restRoutes.openapi(documentRoute, async (c) => {
   return new Response(obj.body, {
     status: 200,
     headers: { "Content-Type": "text/xml" },
+  });
+});
+
+restRoutes.openapi(searchRoute, async (c) => {
+  const q = c.req.valid("query");
+  const result = await searchDocuments(c.env.DB, {
+    q: q.q,
+    flavor: q.flavor,
+    doctype: q.doctype,
+    status: q.status,
+    yearFrom: q.yearFrom ?? null,
+    yearTo: q.yearTo ?? null,
+    sort: q.sort,
+    page: q.page ?? 0,
+    size: q.size ?? 25,
+  });
+  return c.json({
+    total: result.total,
+    page: result.page,
+    size: result.size,
+    items: result.items.map((d) => {
+      const key = d.r2_key.slice(d.flavor.length + 1);
+      return {
+        docid: d.docid,
+        flavor: d.flavor,
+        year: d.year,
+        doctype: d.doctype,
+        status: d.status,
+        title: d.title_en,
+        html: `/collections/${d.flavor}/entries/${encodeURIComponent(key)}`,
+        api: `/api/v1/document?code=${encodeURIComponent(d.docid ?? key)}`,
+      };
+    }),
+    facets: result.facets,
   });
 });
 

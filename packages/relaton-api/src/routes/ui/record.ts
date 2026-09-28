@@ -221,7 +221,13 @@ export function renderRecordPage({ collection, key, docid, body }: RecordPageInp
 <span class="cite-anchor" title="Citation anchor (derived from the identifier)"><code>${escapeHtml(anchor)}</code></span>
 <button type="button" class="copy-btn" data-copy-text="&lt;&lt;${escapeHtml(anchor)}&gt;&gt;">Copy <code>&lt;&lt;${escapeHtml(anchor)}&gt;&gt;</code></button>
 <button type="button" class="copy-btn" data-copy-text="cite:[${escapeHtml(anchor)}]">Copy <code>cite:[${escapeHtml(anchor)}]</code></button>
-${asciibib ? '<button type="button" class="copy-btn copy-primary" data-copy-asciibib>Copy AsciiBib block</button>' : ""}
+${asciibib ? `
+<button type="button" class="mn-cta" data-copy-asciibib title="Copy the AsciiBib representation">
+  <img class="mn-icon mn-light-bg" src="/assets/metanorma-icon-light-bg.svg" alt="Metanorma">
+  <img class="mn-icon mn-dark-bg" src="/assets/metanorma-icon-dark-bg.svg" alt="Metanorma">
+  <span class="mn-cta-text"><strong>Working with Metanorma?</strong>
+  Click to obtain the AsciiBib representation</span>
+</button>` : ""}
 </div>
 <p class="cite-hint">Paste the AsciiBib block under a <code>[bibliography]</code> heading in your Metanorma
 document, then cite with <code>&lt;&lt;${escapeHtml(anchor)}&gt;&gt;</code> or <code>cite:[${escapeHtml(anchor)}]</code>.
@@ -320,8 +326,21 @@ export const RECORD_CSS = `
   .copy-btn code { font-size: 12px; }
   .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
   .copy-btn.copied { color: var(--success); border-color: var(--success); }
-  .copy-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-  .copy-primary:hover { color: #fff; opacity: 0.92; }
+  .mn-cta {
+    display: inline-flex; align-items: center; gap: 10px; text-align: left;
+    padding: 8px 16px 8px 10px; border: 1px solid rgba(114, 94, 219, 0.45); border-radius: 10px;
+    background: rgba(124, 96, 230, 0.08); cursor: pointer;
+    font: 13px/1.45 var(--font); color: var(--fg-2);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .mn-cta:hover { border-color: #725edb; background: rgba(124, 96, 230, 0.14); }
+  .mn-cta strong { color: var(--fg); }
+  .mn-icon { width: 26px; height: 26px; display: block; }
+  .mn-cta .mn-light-bg { display: none; }
+  html.dark .mn-cta .mn-light-bg { display: block; }
+  html.dark .mn-cta .mn-dark-bg { display: none; }
+  .mn-cta.copied { border-color: var(--success); }
+  .mn-cta.copied .mn-cta-text strong { color: var(--success); }
   .cite-hint { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
   .tok-tag { color: var(--accent); }
   .tok-attr { color: var(--aqua); }

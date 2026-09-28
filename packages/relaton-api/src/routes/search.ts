@@ -106,7 +106,7 @@ function renderResults(r: SearchResult, collection: string | undefined): string 
   }
   return r.items.map((d) => {
     const key = d.r2_key.slice(d.flavor.length + 1);
-    const href = `/collections/${escapeHtml(d.flavor)}/entries/${encodeURIComponent(key)}`;
+    const href = `/collections/${escapeHtml(d.flavor)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}`;
     const chips = [
       `<span class="result-chip">${escapeHtml(d.flavor)}</span>`,
       d.doctype ? `<span class="result-chip">${escapeHtml(d.doctype)}</span>` : "",

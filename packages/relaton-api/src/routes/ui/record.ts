@@ -140,7 +140,15 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
 
   const abstracts = asArray(record.abstract as unknown[]).map((a) => {
     const text = contentOf(a);
-    return text ? `<p>${escapeHtml(text)}</p>` : "";
+    if (!text) return "";
+    // NOTE entries render as separate lines (they are list items in the source)
+    const html = text
+      .split(/(?=NOTE\s+\d)/g)
+      .map((seg) => seg.trim())
+      .filter(Boolean)
+      .map((seg) => `<p>${escapeHtml(seg)}</p>`)
+      .join("");
+    return html || `<p>${escapeHtml(text)}</p>`;
   }).join("");
 
   const keywords = asArray(record.keyword as unknown[]).map((k) => {
@@ -254,7 +262,7 @@ export function renderRecordPage({ collection, key, docid, body }: RecordPageInp
   const yamlText = item ? toYaml(item) : null;
   const asciibib = item ? toAsciiBib(item, anchor) : null;
 
-  const entryPath = `/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key)}`;
+  const entryPath = `/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}`;
   const iso690 = item ? toIso690(item) : "";
   const primaryDocid = (() => {
     const docids = Array.isArray(record?.docidentifier) ? record?.docidentifier : record?.docidentifier ? [record.docidentifier] : [];

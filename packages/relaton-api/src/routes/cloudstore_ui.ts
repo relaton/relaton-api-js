@@ -107,6 +107,21 @@ ${rows}
 }
 
 /**
+ * Entry keys mirror the repo layout (data/…). URLs may carry the bare or
+ * the prefixed form — resolve both.
+ */
+export async function findEntryRow(
+  db: D1Database,
+  collection: string,
+  key: string,
+): Promise<EntryRow | null> {
+  const storageKey = key.startsWith("data/") ? key : `data/${key}`;
+  return db.prepare(
+    "SELECT docid, r2_key FROM documents WHERE flavor = ? AND r2_key IN (?, ?)",
+  ).bind(collection, `${collection}/${key}`, `${collection}/${storageKey}`).first<EntryRow>();
+}
+
+/**
  * A single record, framed for a browser: human-readable overview plus the
  * serializations, rendered by ui/record.ts on top of relaton-ts. Raw bytes
  * stay one click away.
@@ -118,9 +133,7 @@ export async function renderEntry(
   rawRequested: boolean,
   fetchObject: (r2Key: string) => Promise<{ text(): Promise<string> } | null>,
 ): Promise<{ html: string } | { body: string; contentType: string } | null> {
-  const row = await db.prepare(
-    "SELECT docid, r2_key FROM documents WHERE flavor = ? AND r2_key = ?",
-  ).bind(collection, `${collection}/${key}`).first<EntryRow>();
+  const row = await findEntryRow(db, collection, key);
   if (!row) return null;
 
   const obj = await fetchObject(row.r2_key);

@@ -58,7 +58,7 @@ ${rowsHtml}
 </section>`;
 }
 
-function renderOverview(record: Record<string, unknown>): string {
+function renderOverview(record: Record<string, unknown>, familyQuery: string, collection: string): string {
   const type = typeof record.type === "string" ? record.type : "";
   const chips: string[] = [];
   if (type) chips.push(`<span class="chip chip-type">${escapeHtml(type)}</span>`);
@@ -171,12 +171,12 @@ function renderOverview(record: Record<string, unknown>): string {
     const titleText = contentOf(obj.title);
     const number = contentOf(obj.number);
     const part = contentOf(obj.partnumber);
-    const text = [titleText, number ? `no. ${number}` : "", part ? `part ${part}` : ""].filter(Boolean).join(" · ");
+    const text = [titleText, number ? `no. ${escapeHtml(number)}` : "", part ? `part ${escapeHtml(part)}` : ""].filter(Boolean).join(" · ");
     if (!text) return "";
-    const siblings = titleText
-      ? ` <a class="series-link" href="/search?q=${encodeURIComponent(titleText)}">other documents in this series ↗</a>`
+    const siblings = familyQuery
+      ? `<a class="series-link" href="/collections/${escapeHtml(collection)}/search?q=${encodeURIComponent(familyQuery)}">other documents in this series ↗</a>`
       : "";
-    return `<div class="ov-row"><span>${escapeHtml(text)}${siblings}</span></div>`;
+    return `<div class="ov-row"><span>${escapeHtml(text)}</span>${siblings}</div>`;
   }).join("");
 
   const copyright = record.copyright as Record<string, unknown> | undefined;
@@ -206,6 +206,34 @@ ${section("relation", "Relations", relations)}
 ${section("series", "Series", series)}
 ${section("copyright", "Copyright", copyrightHtml)}
 `;
+}
+
+/**
+ * Series family for "other documents in this series": the primary docid
+ * minus its year and trailing part/edition segment (ISO 19115-3:2023 →
+ * "ISO 19115"; S-100 → "S" within the iho collection).
+ */
+function primaryDocidText(record: Record<string, unknown> | null, fallback: string): string {
+  if (record && Array.isArray(record.docidentifier)) {
+    for (const d of record.docidentifier as unknown[]) {
+      const obj = (typeof d === "object" && d !== null ? d : {}) as Record<string, unknown>;
+      if (obj.primary === true) {
+        const c = contentOf(obj.content);
+        if (c) return c;
+      }
+    }
+    const first = (record.docidentifier as unknown[])[0];
+    const c0 = contentOf(first);
+    if (c0) return c0;
+  }
+  return fallback;
+}
+
+function familyQueryOf(record: Record<string, unknown> | null, fallbackDocid: string): string {
+  const docid = primaryDocidText(record, fallbackDocid);
+  return (
+    docid.replace(/:[-–]?\d{4}(?=[^-]*$)/, "").replace(/[-–][\d.]+$/, "").trim() || docid
+  );
 }
 
 export interface RecordPageInput {
@@ -260,7 +288,7 @@ Fields are explained on <a href="https://www.relaton.org/model/" target="_blank"
     panes.push(`<pre id="pane-${id}" role="tabpanel" aria-labelledby="tab-btn-${id}"${first ? "" : " hidden"}>${contentHtml}</pre>`);
   };
 
-  if (record) addTab("overview", "Overview", renderOverview(record));
+  if (record) addTab("overview", "Overview", renderOverview(record, familyQueryOf(record, key), collection));
   if (yamlText) addTab("yaml", "Relaton YAML", highlightYaml(yamlText));
   addTab("xml", isXml ? "Relaton XML" : "Source", highlightXml(body));
   if (asciibib) addTab("asciibib", "AsciiBib", escapeHtml(asciibib));

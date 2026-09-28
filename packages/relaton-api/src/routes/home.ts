@@ -29,9 +29,12 @@ const CSS = `
   }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip {
-    display: inline-flex; align-items: baseline; gap: 6px; background: var(--bg-mute);
-    border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px; font-size: 13px;
+    display: inline-flex; align-items: center; gap: 8px; background: var(--bg-mute);
+    border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px 3px 6px; font-size: 13px;
+    color: inherit; text-decoration: none;
   }
+  a.chip:hover { border-color: var(--accent); }
+  .chip-logo { width: 22px; height: 22px; object-fit: contain; background: #fff; border-radius: 4px; padding: 1px; }
   .chip-count { color: var(--muted); }
   #result { display: none; margin-top: 8px; white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; }
   #status { color: var(--muted); font-size: 13px; margin-top: 6px; min-height: 1em; }
@@ -52,11 +55,16 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
     .sort()
     .pop();
 
+  // Publisher logos, same per-flavor set as the collections index.
+  const PNG_LOGOS = new Set(["omg", "cenelec"]);
   const chips = flavors
-    .map(
-      (f) =>
-        `<span class="chip"><span class="chip-name">${escapeHtml(f.flavor)}</span><span class="chip-count">${f.doc_count.toLocaleString("en-US")}</span></span>`,
-    )
+    .map((f) => {
+      if (f.doc_count <= 0) return "";
+      const logo = /^[a-z0-9-]+$/.test(f.flavor)
+        ? `<img class="chip-logo" src="https://www.relaton.org/logos/${f.flavor}-logo.${PNG_LOGOS.has(f.flavor) ? "png" : "svg"}" alt="" loading="lazy" onerror="this.remove()">`
+        : "";
+      return `<a class="chip" href="/collections/${encodeURIComponent(f.flavor)}">${logo}<span class="chip-name">${escapeHtml(f.flavor)}</span><span class="chip-count">${f.doc_count.toLocaleString("en-US")}</span></a>`;
+    })
     .join("");
 
   const body = `

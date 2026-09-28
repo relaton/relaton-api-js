@@ -1,6 +1,6 @@
 import { searchDocuments } from "../lib/search";
 import { findDocument } from "../lib/lookup";
-import { fromXml, toAsciiBib, toYaml, slugAnchor, type RelatonItem } from "relaton-ts";
+import { fromXml, toAsciiBib, toIso690, toYaml, slugAnchor, type RelatonItem } from "relaton-ts";
 import { renderCreatePreview, type CreatePayload } from "./create";
 import { verifyCode } from "./verify";
 
@@ -226,10 +226,15 @@ relaton_create_record instead.`,
         const body = format === "xml" ? xml : format === "json" ? JSON.stringify(item, null, 2) : toYaml(item);
         return textResult(body);
       }
+      const docids = (item as unknown as { docidentifier?: { content?: string }[] }).docidentifier ?? [];
+      const primaryDocid = docids.find((d) => d.content)?.content ?? code;
       return textResult(
         `Citation anchor: ${anchor}\n\n` +
-        `Inline in Metanorma text: <<${anchor}>> or cite:[${anchor}]\n\n` +
-        `Paste under your [bibliography] heading:\n\n` +
+        `1) Fetch entry (indexed document — Metanorma fetches the full record at build time;\n` +
+        `   pass allParts: true for the aggregate, or omit the year for the latest edition):\n` +
+        `   * [[[${anchor},${primaryDocid}]]]\n\n` +
+        `2) ISO 690 citation string:\n   ${toIso690(item)}\n\n` +
+        `3) Full AsciiBib block (custom/unindexed records, or to override fields):\n\n` +
         toAsciiBib(item, anchor),
       );
     }

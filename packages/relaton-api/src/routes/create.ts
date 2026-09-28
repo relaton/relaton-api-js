@@ -1,6 +1,7 @@
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
-import { parseItem, toYaml, toXml, toJson, toAsciiBib, slugAnchor, type RelatonItem } from "relaton-ts";
+import { parseItem, toYaml, toXml, toJson, toAsciiBib, toIso690, slugAnchor, type RelatonItem } from "relaton-ts";
+import { parse as parsePubid } from "pubid-ts";
 import { RECORD_CSS } from "./ui/record";
 
 // Citation-formatter-style builder for a Relaton bibliographic record:
@@ -75,6 +76,10 @@ const CSS = `
   .hint { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
   .hint code { background: var(--bg-mute); padding: 2px 6px; border-radius: 4px; font-size: 12px; }
   .errors { color: #c53030; font-size: 13px; margin: 0 0 8px; }
+  .fetch-card { margin: 0 0 14px; }
+  .fetch-card pre { margin: 8px 0 0; }
+  .fetch-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px;
+                font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
   .dark .errors { color: #fc8181; }
 `;
 
@@ -181,6 +186,8 @@ const PRESETS: Record<string, PresetDef> = {
 export interface CreatePayload {
   type?: string;
   docid?: string;
+  undated?: boolean;
+  allParts?: boolean;
   docidType?: string;
   docidPrimary?: boolean;
   anchor?: string;
@@ -242,7 +249,11 @@ function buildItem(p: CreatePayload): Record<string, unknown> {
 export interface PreviewResult {
   ok: boolean;
   errors?: string[];
+  warnings?: string[];
   anchor?: string;
+  docid?: string;
+  fetchEntry?: string;
+  iso690?: string;
   yaml?: string;
   xml?: string;
   json?: string;
@@ -262,9 +273,33 @@ export function renderCreatePreview(p: CreatePayload): PreviewResult {
   }
   const validated = parsed.item as RelatonItem;
   const anchor = p.anchor || slugAnchor(p.docid ?? "");
+
+  // The docid should be a PubID the relaton API can resolve — warn (not
+  // fail) when pubid-ts cannot normalize it, so DOI/ISBN/custom ids still
+  // build records.
+  const warnings: string[] = [];
+  if (p.docid && !parsePubid(p.docid)) {
+    warnings.push(`"${p.docid}" is not a PubID the API recognizes — Metanorma auto-fetch will not resolve it; use the full AsciiBib block instead.`);
+  }
+
+  // The one-line fetch entry: undated resolves the latest edition at
+  // build time; "(all parts)" cites the aggregate.
+  let fetchDocid = p.docid ?? "";
+  if (fetchDocid) {
+    if (p.undated) fetchDocid = fetchDocid.replace(/:[-–]?\d{4}$/, "");
+    if (p.allParts && !/all parts/i.test(fetchDocid)) {
+      fetchDocid = fetchDocid.replace(/:[-–]?\d{4}$/, "").replace(/-[\d.]+$/, "") + " (all parts)";
+    }
+  }
+  const fetchEntry = fetchDocid ? `* [[[${anchor},${fetchDocid}]]]` : "";
+
   return {
     ok: true,
     anchor,
+    docid: fetchDocid,
+    fetchEntry,
+    iso690: toIso690(validated),
+    warnings: warnings.length ? warnings : undefined,
     yaml: toYaml(validated),
     xml: toXml(validated),
     json: JSON.stringify(validated, null, 2),
@@ -305,6 +340,8 @@ function readPayload() {
     docid: val("f-docid"),
     docidType: val("f-docid-type"),
     docidPrimary: el("f-docid-primary").checked,
+    undated: el("f-undated").checked,
+    allParts: el("f-allparts").checked,
     anchor: val("f-anchor"),
     title: val("f-title"),
     titleType: el("f-title-type").value,
@@ -328,6 +365,12 @@ function render(data) {
     return;
   }
   err.style.display = "none";
+  if (data.warnings && data.warnings.length) {
+    err.textContent = data.warnings.join(" · ");
+    err.style.display = "block";
+  }
+  el("out-fetch").textContent = data.fetchEntry || "";
+  el("out-iso690").textContent = data.iso690 || "";
   el("out-yaml").textContent = data.yaml;
   el("out-xml").textContent = data.xml;
   el("out-json").textContent = data.json;
@@ -426,6 +469,14 @@ document.querySelectorAll("[data-pane-tab]").forEach(function (btn) {
     });
   });
 });
+document.querySelectorAll("[data-copy-text-source]").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    var src = document.getElementById(btn.dataset.copyTextSource);
+    if (src && navigator.clipboard) navigator.clipboard.writeText(src.textContent || "");
+    btn.textContent = "Copied!";
+    setTimeout(function () { btn.textContent = "Copy"; }, 1500);
+  });
+});
 document.querySelectorAll("[data-copy]").forEach(function (btn) {
   btn.addEventListener("click", function () {
     var pane = el("out-" + btn.dataset.copy);
@@ -473,8 +524,14 @@ The AsciiBib output pastes straight into a Metanorma document.</p>
         <label style="justify-content:flex-end;flex-direction:row;align-items:center;gap:8px">
           <input type="checkbox" id="f-docid-primary" style="width:auto" checked> Primary identifier
         </label>
-        <label class="wide">Anchor (citation id — derived from the identifier if blank)
+        <label class="wide">Anchor (yours to choose — default derived from the identifier)
           <input id="f-anchor" placeholder="${escapeHtml(slugAnchor("ISO 8601-1:2019"))}">
+        </label>
+        <label style="flex-direction:row;align-items:center;gap:8px;justify-content:flex-end">
+          <input type="checkbox" id="f-undated" style="width:auto"> Undated (fetch latest edition)
+        </label>
+        <label style="flex-direction:row;align-items:center;gap:8px">
+          <input type="checkbox" id="f-allparts" style="width:auto"> All parts (aggregate)
         </label>
       </div>
     </fieldset>
@@ -546,6 +603,15 @@ The AsciiBib output pastes straight into a Metanorma document.</p>
       <button type="button" class="copy-btn" data-copy="yaml">Copy</button>
     </div>
     <p class="errors" id="preview-errors" style="display:none"></p>
+    <div class="fetch-card">
+      <div class="fetch-head">Metanorma fetch entry <button type="button" class="copy-btn" data-copy-text-source="out-fetch">Copy</button></div>
+      <pre><code id="out-fetch"></code></pre>
+      <p class="hint" style="margin:6px 0 0">The anchor is yours; the identifier must be a PubID the API resolves. Undated fetches the latest edition; <em>all parts</em> cites the aggregate. To override single fields, append them under the fetch entry in AsciiBib (e.g. <code>title:: …</code>) — or expand the full block below.</p>
+    </div>
+    <div class="fetch-card">
+      <div class="fetch-head">ISO 690 citation <button type="button" class="copy-btn" data-copy-text-source="out-iso690">Copy</button></div>
+      <pre><code id="out-iso690"></code></pre>
+    </div>
     <div class="tabs" role="tablist">
       <button class="tab-btn" data-pane-tab="yaml" role="tab" aria-selected="true">Relaton YAML</button>
       <button class="tab-btn" data-pane-tab="xml" role="tab" aria-selected="false">Relaton XML</button>

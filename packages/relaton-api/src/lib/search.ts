@@ -52,7 +52,39 @@ interface BuiltWhere {
   bind: unknown[];
 }
 
-function buildWhere(p: SearchParams, opts: { scopeFlavor?: string } = {}): BuiltWhere {
+/** Build an FTS5 MATCH string from free text: alphanumeric tokens, prefix
+ * matched, ANDed ("ISO 9001" → `iso* AND 9001*`). Returns "" when the
+ * query has no usable tokens, or when abstract-only mode needs the
+ * LIKE fallback (column-filtered prefixes match too narrowly here).
+ * An unpopulated index yields zero rows, so search.ts probes the index
+ * before enabling this path. */
+export function ftsMatch(q: string, abstractOnly = false): string {
+  const tokens = q.match(/[A-Za-z0-9]+/g) ?? [];
+  const usable = tokens.filter((w) => w.length >= 2 || /\d/.test(w)).slice(0, 8);
+  if (!usable.length) return "";
+  const expr = usable.map((w) => `${w.toLowerCase()}*`).join(" AND ");
+  return abstractOnly ? `{abstract}: (${expr})` : expr;
+}
+
+/** True when the FTS index exists and holds rows. Probed per search —
+ * it is a LIMIT 1 lookup, and caching a stale negative would pin an
+ * isolate to the LIKE scan even after the index populates. */
+export async function ftsAvailable(db: D1Database): Promise<boolean> {
+  try {
+    const row = await db.prepare(
+      "SELECT rowid FROM documents_fts LIMIT 1",
+    ).first();
+    return row !== null;
+  } catch {
+    return false;
+  }
+}
+
+function buildWhere(
+  p: SearchParams,
+  opts: { scopeFlavor?: string } = {},
+  useFts = false,
+): BuiltWhere {
   const clauses: string[] = [];
   const bind: unknown[] = [];
 
@@ -80,15 +112,23 @@ function buildWhere(p: SearchParams, opts: { scopeFlavor?: string } = {}): Built
     bind.push(p.yearTo);
   }
   if (p.q) {
-    const like = `%${p.q}%`;
-    if (p.inAbstract) {
-      clauses.push(
-        "(docid LIKE ? OR title_en LIKE ? OR norm LIKE ? OR undated_norm LIKE ? OR abstract LIKE ?)",
-      );
-      bind.push(like, like, like, like, like);
+    const match = useFts ? ftsMatch(p.q, p.inAbstract === true) : "";
+    if (match) {
+      // FTS5 narrows by identifier/title/abstract tokens in a fraction of
+      // the LIKE scan; the outer query keeps all filters and ordering.
+      clauses.push("id IN (SELECT rowid FROM documents_fts WHERE documents_fts MATCH ?)");
+      bind.push(match);
     } else {
-      clauses.push("(docid LIKE ? OR title_en LIKE ? OR norm LIKE ? OR undated_norm LIKE ?)");
-      bind.push(like, like, like, like);
+      const like = `%${p.q}%`;
+      if (p.inAbstract) {
+        clauses.push(
+          "(docid LIKE ? OR title_en LIKE ? OR norm LIKE ? OR undated_norm LIKE ? OR abstract LIKE ?)",
+        );
+        bind.push(like, like, like, like, like);
+      } else {
+        clauses.push("(docid LIKE ? OR title_en LIKE ? OR norm LIKE ? OR undated_norm LIKE ?)");
+        bind.push(like, like, like, like);
+      }
     }
   }
 
@@ -127,7 +167,8 @@ export async function searchDocuments(
   }
   const page = Math.max(0, params.page ?? 0);
   const size = Math.min(100, Math.max(10, params.size ?? 25));
-  const { where, bind } = buildWhere(params, opts);
+  const useFts = params.q ? await ftsAvailable(db) : false;
+  const { where, bind } = buildWhere(params, opts, useFts);
   const sort = params.sort ?? "relevance";
 
   const totalRow = await db.prepare(
@@ -160,6 +201,7 @@ export async function searchDocuments(
   const textOnly = buildWhere(
     { q: params.q, yearFrom: params.yearFrom, yearTo: params.yearTo },
     opts,
+    useFts,
   );
   const facets: FacetCounts = {};
   if (!opts.scopeFlavor) facets.flavor = await facetFor(db, "flavor", textOnly);

@@ -133,6 +133,42 @@ adminRoutes.post("/admin/backfill-status/:flavor", async (c) => {
   });
 });
 
+adminRoutes.post("/admin/populate-fts", async (c) => {
+  if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
+    return c.text("Forbidden.", 403);
+  }
+  const limit = Math.min(10000, Number(c.req.query("limit") ?? "5000") || 5000);
+  const cursor = Number(c.req.query("cursor") ?? "0") || 0;
+
+  // One statement re-derives every entry from the content table — the
+  // fastest path for a first index build. Falls back to the paged walk
+  // below when a runtime cap refuses the statement.
+  if (c.req.query("rebuild") === "1") {
+    await c.env.DB.prepare("INSERT INTO documents_fts(documents_fts) VALUES('rebuild')").run();
+    return c.json({ mode: "rebuild" });
+  }
+
+  // Rows whose FTS entry does not exist yet (pre-trigger rows), in id
+  // order so the walk is resumable by cursor.
+  const { results } = await c.env.DB.prepare(
+    `SELECT d.id, d.docid, d.title_en, d.abstract FROM documents d
+     WHERE d.id > ?1 AND NOT EXISTS (SELECT 1 FROM documents_fts WHERE documents_fts.rowid = d.id)
+     ORDER BY d.id LIMIT ?2`,
+  ).bind(cursor, limit).all<{ id: number; docid: string | null; title_en: string | null; abstract: string | null }>();
+
+  for (const row of results ?? []) {
+    await c.env.DB.prepare(
+      "INSERT INTO documents_fts(rowid, docid, title_en, abstract) VALUES (?1, ?2, ?3, ?4)",
+    ).bind(row.id, row.docid, row.title_en, row.abstract).run();
+  }
+
+  const lastId = (results ?? []).at(-1)?.id ?? cursor;
+  return c.json({
+    scanned: results?.length ?? 0, indexed: (results ?? []).length, lastId,
+    nextCursor: (results?.length ?? 0) === limit ? lastId : null,
+  });
+});
+
 adminRoutes.post("/admin/ingest/:flavor", async (c) => {
   if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
     return c.text("Forbidden.", 403);

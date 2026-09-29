@@ -1,7 +1,7 @@
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
 import { STATUS_WORDS } from "./ui/record";
-import { searchDocuments, type SearchParams, type SearchResult } from "../lib/search";
+import { hybridSearch, type SearchParams, type SearchResult } from "../lib/search";
 
 // Global pubid/keyword search across every flavor, with facets, sorting,
 // and pagination. Server-rendered; API clients get the same engine at
@@ -110,6 +110,7 @@ function parseParams(url: URL): SearchParams {
     doctype: url.searchParams.get("doctype") || undefined,
     status: url.searchParams.get("status") || undefined,
     inAbstract: url.searchParams.get("abstract") === "1",
+    semantic: url.searchParams.get("semantic") === "1",
     yearFrom: num("yearFrom"),
     yearTo: num("yearTo"),
     sort,
@@ -182,9 +183,14 @@ export interface SearchPageOptions {
   activeNav?: string;
 }
 
-export async function renderSearchPage(db: D1Database, url: URL, opts: SearchPageOptions = {}): Promise<string> {
+export async function renderSearchPage(
+  env: AppEnv["Bindings"],
+  db: D1Database,
+  url: URL,
+  opts: SearchPageOptions = {},
+): Promise<string> {
   const params = parseParams(url);
-  const result = await searchDocuments(db, params, { scopeFlavor: opts.scopeFlavor });
+  const result = await hybridSearch(db, env, params, { scopeFlavor: opts.scopeFlavor });
   const qs = new URLSearchParams(url.searchParams);
   qs.delete("page");
 
@@ -214,6 +220,7 @@ ${scopeMeta}
 <form class="search-bar" method="get" action="${action}">
   <input name="q" value="${escapeHtml(params.q ?? "")}" placeholder="Publication identifier or title — e.g. ISO 19115, TLS, risk assessment…" aria-label="Search">
   <label class="abstract-toggle"><input type="checkbox" name="abstract" value="1"${params.inAbstract ? " checked" : ""}> search abstracts</label>
+  <label class="abstract-toggle"><input type="checkbox" name="semantic" value="1"${params.semantic ? " checked" : ""}> semantic</label>
   <select name="yearFrom" aria-label="Year from">
     <option value="">any year</option>
     ${Array.from({ length: 8 }, (_, i) => 2026 - i * 5).map((y) =>

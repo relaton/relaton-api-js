@@ -78,6 +78,12 @@ const CSS = `
   .errors { color: #c53030; font-size: 13px; margin: 0 0 8px; }
   .fetch-card { margin: 0 0 14px; }
   .fetch-card pre { margin: 8px 0 0; }
+  .cite-reading {
+    margin: 8px 0 0; font-size: 15.5px; line-height: 1.6; color: var(--fg);
+  }
+  .pane-wrap { position: relative; }
+  .pane-bar { display: flex; justify-content: flex-end; margin-bottom: -30px; padding: 6px 8px; position: relative; z-index: 2; }
+  .pane-bar .copy-btn { font-size: 12px; padding: 5px 12px; background: var(--bg); }
   .fetch-head { display: flex; justify-content: space-between; align-items: center; font-size: 13px;
                 font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
   .dark .errors { color: #fc8181; }
@@ -598,10 +604,7 @@ The AsciiBib output pastes straight into a Metanorma document.</p>
   </form>
 
   <div class="output">
-    <div class="output-bar">
-      <span class="hint" style="margin:0">relaton-ts canonical output</span>
-      <button type="button" class="copy-btn" data-copy="yaml">Copy</button>
-    </div>
+    <p class="hint" style="margin:0 0 12px">relaton-ts canonical output — monospace forms are copy targets</p>
     <p class="errors" id="preview-errors" style="display:none"></p>
     <div class="fetch-card">
       <div class="fetch-head">Metanorma fetch entry <button type="button" class="copy-btn" data-copy-text-source="out-fetch">Copy</button></div>
@@ -610,7 +613,7 @@ The AsciiBib output pastes straight into a Metanorma document.</p>
     </div>
     <div class="fetch-card">
       <div class="fetch-head">ISO 690 citation <button type="button" class="copy-btn" data-copy-text-source="out-iso690">Copy</button></div>
-      <pre><code id="out-iso690"></code></pre>
+      <p class="cite-reading" id="out-iso690"></p>
     </div>
     <div class="tabs" role="tablist">
       <button class="tab-btn" data-pane-tab="yaml" role="tab" aria-selected="true">Relaton YAML</button>
@@ -619,10 +622,10 @@ The AsciiBib output pastes straight into a Metanorma document.</p>
       <button class="tab-btn" data-pane-tab="asciibib" role="tab" aria-selected="false">AsciiBib</button>
     </div>
     <div class="panes">
-      <pre id="pane-yaml" data-pane><code id="out-yaml"></code></pre>
-      <pre id="pane-xml" data-pane hidden><code id="out-xml"></code></pre>
-      <pre id="pane-json" data-pane hidden><code id="out-json"></code></pre>
-      <pre id="pane-asciibib" data-pane hidden><code id="out-asciibib"></code></pre>
+      <div class="pane-wrap" id="wrap-yaml"><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-yaml">Copy YAML</button></div><pre id="pane-yaml" data-pane><code id="out-yaml"></code></pre></div>
+      <div class="pane-wrap" id="wrap-xml" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-xml">Copy XML</button></div><pre id="pane-xml" data-pane hidden><code id="out-xml"></code></pre></div>
+      <div class="pane-wrap" id="wrap-json" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-json">Copy JSON</button></div><pre id="pane-json" data-pane hidden><code id="out-json"></code></pre></div>
+      <div class="pane-wrap" id="wrap-asciibib" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-asciibib">Copy AsciiBib</button></div><pre id="pane-asciibib" data-pane hidden><code id="out-asciibib"></code></pre></div>
     </div>
     <p class="hint" id="cite-hint"></p>
   </div>

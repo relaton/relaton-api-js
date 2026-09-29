@@ -1,6 +1,6 @@
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
-import { parseItem, toYaml, toXml, toJson, toAsciiBib, toIso690, slugAnchor, type RelatonItem } from "relaton";
+import { parseItem, toYaml, toXml, toJson, toAsciiBib, toIso690, toBibtex, toRis, toCslJson, slugAnchor, type RelatonItem } from "relaton";
 import { parse as parsePubid } from "pubid-ts";
 import { RECORD_CSS } from "./ui/record";
 
@@ -260,6 +260,9 @@ export interface PreviewResult {
   docid?: string;
   fetchEntry?: string;
   iso690?: string;
+  bibtex?: string;
+  ris?: string;
+  csl?: string;
   yaml?: string;
   xml?: string;
   json?: string;
@@ -305,6 +308,9 @@ export function renderCreatePreview(p: CreatePayload): PreviewResult {
     docid: fetchDocid,
     fetchEntry,
     iso690: toIso690(validated),
+    bibtex: toBibtex(validated),
+    ris: toRis(validated),
+    csl: toCslJson(validated),
     warnings: warnings.length ? warnings : undefined,
     yaml: toYaml(validated),
     xml: toXml(validated),
@@ -381,6 +387,9 @@ function render(data) {
   el("out-xml").textContent = data.xml || "";
   el("out-json").textContent = data.json || "";
   el("out-asciibib").textContent = data.asciibib || "";
+  el("out-bibtex").textContent = data.bibtex || "";
+  el("out-ris").textContent = data.ris || "";
+  el("out-csl").textContent = data.csl || "";
   el("cite-hint").innerHTML = data.anchor
     ? "Cite in Metanorma with <code>&lt;&lt;" + data.anchor + "&gt;&gt;</code> or <code>cite:[" + data.anchor + "]</code> — paste the AsciiBib block under a <code>[bibliography]</code> heading."
     : "";
@@ -621,12 +630,18 @@ The AsciiBib output pastes straight into a Metanorma document.</p>
       <button class="tab-btn" data-pane-tab="xml" role="tab" aria-selected="false">Relaton XML</button>
       <button class="tab-btn" data-pane-tab="json" role="tab" aria-selected="false">JSON</button>
       <button class="tab-btn" data-pane-tab="asciibib" role="tab" aria-selected="false">AsciiBib</button>
+      <button class="tab-btn" data-pane-tab="bibtex" role="tab" aria-selected="false">BibTeX</button>
+      <button class="tab-btn" data-pane-tab="ris" role="tab" aria-selected="false">RIS</button>
+      <button class="tab-btn" data-pane-tab="csl" role="tab" aria-selected="false">CSL-JSON</button>
     </div>
     <div class="panes">
       <div class="pane-wrap" id="wrap-yaml"><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-yaml">Copy YAML</button></div><pre id="pane-yaml" data-pane><code id="out-yaml"></code></pre></div>
       <div class="pane-wrap" id="wrap-xml" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-xml">Copy XML</button></div><pre id="pane-xml" data-pane hidden><code id="out-xml"></code></pre></div>
       <div class="pane-wrap" id="wrap-json" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-json">Copy JSON</button></div><pre id="pane-json" data-pane hidden><code id="out-json"></code></pre></div>
       <div class="pane-wrap" id="wrap-asciibib" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-asciibib">Copy AsciiBib</button></div><pre id="pane-asciibib" data-pane hidden><code id="out-asciibib"></code></pre></div>
+      <div class="pane-wrap" id="wrap-bibtex" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-bibtex">Copy BibTeX</button></div><pre id="pane-bibtex" data-pane hidden><code id="out-bibtex"></code></pre></div>
+      <div class="pane-wrap" id="wrap-ris" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-ris">Copy RIS</button></div><pre id="pane-ris" data-pane hidden><code id="out-ris"></code></pre></div>
+      <div class="pane-wrap" id="wrap-csl" hidden><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text-source="out-csl">Copy CSL-JSON</button></div><pre id="pane-csl" data-pane hidden><code id="out-csl"></code></pre></div>
     </div>
     <p class="hint" id="cite-hint"></p>
   </div>

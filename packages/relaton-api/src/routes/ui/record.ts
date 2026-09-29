@@ -4,7 +4,7 @@
 // relaton.org so users learn what each field means in place.
 
 import { escapeHtml } from "./chrome";
-import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml, toIso690, toChicago, toApa } from "relaton";
+import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml, toIso690, toChicago, toApa, toBibtex, toRis, toCslJson } from "relaton";
 import { highlightXml, highlightYaml } from "../../lib/highlight";
 
 // Field → relaton.org model documentation page
@@ -466,6 +466,14 @@ ${asciibib ? `
 <p class="mn-step">3 · Cite it as <code>&lt;&lt;${escapeHtml(anchor)}&gt;&gt;</code> or <code>cite:[${escapeHtml(anchor)}]</code>.</p>
 </div>
 </details>` : ""}
+<section class="tool-card">
+<h3>Download</h3>
+<div class="cite-styles">
+<div class="cite-style-row"><span class="cite-style-label">BibTeX</span><span class="cite-style-text">Reference managers and LaTeX</span><a class="dl-link" href="/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}/export.bib" download>Download</a></div>
+<div class="cite-style-row"><span class="cite-style-label">RIS</span><span class="cite-style-text">EndNote, Zotero, RefWorks</span><a class="dl-link" href="/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}/export.ris" download>Download</a></div>
+<div class="cite-style-row"><span class="cite-style-label">CSL</span><span class="cite-style-text">Citation Style Language JSON</span><a class="dl-link" href="/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}/export.csl.json" download>Download</a></div>
+</div>
+</section>
 <p class="cite-hint">Citation fields are explained on <a href="https://www.relaton.org/model/" target="_blank" rel="noopener">relaton.org/model</a>.</p>`;
 
   const tabs: string[] = [];
@@ -476,9 +484,15 @@ ${asciibib ? `
     panes.push(`<div class="pane-wrap" id="wrap-${id}"${first ? "" : " hidden"}><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text="${escapeHtml(rawText)}">Copy ${label}</button></div><pre id="pane-${id}" role="tabpanel" aria-labelledby="tab-btn-${id}">${contentHtml}</pre></div>`);
   };
 
+  const bibtex = item ? toBibtex(item) : "";
+  const ris = item ? toRis(item) : "";
+  const csl = item ? toCslJson(item) : "";
   if (yamlText) addTab("yaml", "Relaton YAML", highlightYaml(yamlText), yamlText);
   addTab("xml", isXml ? "Relaton XML" : "Source", highlightXml(body), body);
   if (asciibib) addTab("asciibib", "AsciiBib", escapeHtml(asciibib), asciibib);
+  if (bibtex) addTab("bibtex", "BibTeX", escapeHtml(bibtex), bibtex);
+  if (ris) addTab("ris", "RIS", escapeHtml(ris), ris);
+  if (csl) addTab("csl", "CSL-JSON", escapeHtml(csl), csl);
 
   return `
 <p class="meta">${escapeHtml(collection)} collection ·
@@ -679,6 +693,12 @@ export const RECORD_CSS = `
     max-height: 240px; overflow: auto;
   }
   .cite-hint { color: var(--muted); font-size: 12.5px; margin: 0; }
+  .dl-link {
+    font-size: 12.5px; font-weight: 600; color: var(--accent); text-decoration: none;
+    border: 1px solid var(--accent-soft); border-radius: 999px; padding: 3px 10px;
+    justify-self: end; white-space: nowrap;
+  }
+  .dl-link:hover { border-color: var(--accent); background: var(--accent-soft); }
   .cite-styles { display: flex; flex-direction: column; gap: 8px; margin: 0; }
   .cite-style-row { display: grid; grid-template-columns: 64px 1fr 26px; gap: 8px; align-items: baseline; }
   .cite-style-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }

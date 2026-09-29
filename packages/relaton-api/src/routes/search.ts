@@ -33,6 +33,20 @@ const CSS = `
   .facet-link.on { background: var(--accent-soft); color: var(--accent); }
   .facet-link .n { color: var(--muted); font-variant-numeric: tabular-nums; }
   .results-info { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
+  .collection-hero {
+    border: 1px solid var(--border); border-radius: 16px; padding: 18px 22px 16px;
+    margin: 0 0 16px; overflow: hidden;
+    background:
+      radial-gradient(120% 150% at 100% 0%, var(--accent-soft) 0%, transparent 55%),
+      linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
+  }
+  .collection-hero h1 { margin: 0; display: flex; align-items: center; gap: 12px; }
+  .collection-hero .meta { margin: 4px 0 0; }
+  .coll-mark {
+    flex: none; width: 46px; height: 46px; border: 1px solid var(--border); border-radius: 10px;
+    background: #fff; display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  .coll-mark .coll-logo { height: 30px; width: auto; margin: 0; }
   .result { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 10px; }
   .result-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
   .result-docid { font-size: 15.5px; font-weight: 650; color: var(--accent); text-decoration: none; letter-spacing: 0.01em; }
@@ -193,8 +207,10 @@ export async function renderSearchPage(db: D1Database, url: URL, opts: SearchPag
     : "";
 
   const body = `
-<h1>${logoSrc ? `<img class="coll-logo" src="${logoSrc}" alt="" onerror="this.remove()">` : ""}${opts.title ?? "Search"}</h1>
+<div class="collection-hero">
+<h1>${logoSrc ? `<a class="coll-mark" href="/collections/${escapeHtml(opts.scopeFlavor ?? "")}"><img class="coll-logo" src="${logoSrc}" alt="" onerror="this.remove()"></a>` : ""}${opts.title ?? "Search"}</h1>
 ${scopeMeta}
+</div>
 <form class="search-bar" method="get" action="${action}">
   <input name="q" value="${escapeHtml(params.q ?? "")}" placeholder="Publication identifier or title — e.g. ISO 19115, TLS, risk assessment…" aria-label="Search">
   <label class="abstract-toggle"><input type="checkbox" name="abstract" value="1"${params.inAbstract ? " checked" : ""}> search abstracts</label>

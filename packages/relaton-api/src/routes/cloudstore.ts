@@ -153,6 +153,18 @@ cloudStoreRoutes.openapi(entryRoute, async (c) => {
   // Browsers get a framed record page (?raw=1 links the bytes); API
   // clients keep the raw response.
   if (wantsHtml(c.req.header("Accept")) && !c.req.query("raw")) {
+    // Record pages are the heaviest HTML on the site (R2 fetch + parse +
+    // full render), so the edge caches them for the freshness window.
+    // The variant marker keeps the cache key distinct from the raw bytes.
+    const variantUrl = new URL(c.req.url);
+    variantUrl.searchParams.set("v", "html");
+    // caches.default is a Cloudflare extension absent from the DOM lib types.
+    const edge = (caches as unknown as { default: Cache }).default;
+    try {
+      const hit = await edge.match(new Request(variantUrl, { method: "GET" }));
+      if (hit) return hit;
+    } catch { /* cache unavailable in this runtime — render normally */ }
+
     const page = await renderEntry(
       c.env.DB, collection, key, false,
       (r2Key) => c.env.BUCKET.get(r2Key),
@@ -161,9 +173,13 @@ cloudStoreRoutes.openapi(entryRoute, async (c) => {
     if ("html" in page) {
       // Record pages change only on ingest; a five-minute freshness window
       // with background revalidation keeps repeat visits instant.
-      return c.html(page.html, 200, {
+      const res = c.html(page.html, 200, {
         "cache-control": "public, max-age=300, stale-while-revalidate=86400",
       });
+      try {
+        c.executionCtx.waitUntil(edge.put(new Request(variantUrl, { method: "GET" }), res.clone()));
+      } catch { /* same as above */ }
+      return res;
     }
     return c.text(page.body, 200, {
       "content-type": page.contentType,

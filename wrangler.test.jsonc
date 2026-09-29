@@ -1,0 +1,18 @@
+{
+  "name": "api-relaton-org-test",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "api-relaton-org",
+      "database_id": "c7c620c7-b102-4f85-9a8c-66c0fd3db246"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "relaton-api-data"
+    }
+  ]
+}

@@ -378,9 +378,9 @@ function render(data) {
   el("out-fetch").textContent = data.fetchEntry || "";
   el("out-iso690").textContent = data.iso690 || "";
   el("out-yaml").textContent = data.yaml;
-  el("out-xml").textContent = data.xml;
-  el("out-json").textContent = data.json;
-  el("out-asciibib").textContent = data.asciibib;
+  el("out-xml").textContent = data.xml || "";
+  el("out-json").textContent = data.json || "";
+  el("out-asciibib").textContent = data.asciibib || "";
   el("cite-hint").innerHTML = data.anchor
     ? "Cite in Metanorma with <code>&lt;&lt;" + data.anchor + "&gt;&gt;</code> or <code>cite:[" + data.anchor + "]</code> — paste the AsciiBib block under a <code>[bibliography]</code> heading."
     : "";
@@ -470,8 +470,9 @@ document.querySelectorAll("[data-pane-tab]").forEach(function (btn) {
     document.querySelectorAll("[data-pane-tab]").forEach(function (b) {
       b.setAttribute("aria-selected", String(b === btn));
     });
-    document.querySelectorAll("[data-pane]").forEach(function (p) {
-      p.hidden = p.id !== "pane-" + btn.dataset.paneTab;
+    document.querySelectorAll("[data-pane], .pane-wrap").forEach(function (p) {
+      var target = p.id.replace(/^wrap-/, "pane-");
+      p.hidden = target !== "pane-" + btn.dataset.paneTab;
     });
   });
 });

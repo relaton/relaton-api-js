@@ -51,6 +51,13 @@ const CSS = `
     border-radius: 8px; text-decoration: none; color: var(--fg); background: var(--bg); }
   .pager .info { margin-right: auto; color: var(--muted); border: none; background: none; }
   .empty { color: var(--muted); padding: 32px 0; text-align: center; }
+  .empty-state {
+    border: 1px dashed var(--border); border-radius: 12px; background: var(--bg-soft);
+    padding: 30px 24px; text-align: center; margin: 4px 0;
+  }
+  .empty-title { font-size: 16px; font-weight: 600; color: var(--fg); margin: 0 0 6px; }
+  .empty-hint { color: var(--muted); font-size: 14px; margin: 0; }
+  .empty-hint a { color: var(--accent); }
   .coll-logo { height: 34px; width: auto; vertical-align: middle; margin-right: 10px; }
 `;
 
@@ -112,9 +119,16 @@ function renderFacet(
   return `<div class="facet-card"><h3>${dimension}</h3>${links}</div>`;
 }
 
-function renderResults(r: SearchResult, collection: string | undefined): string {
+function renderResults(r: SearchResult, collection: string | undefined, query: string): string {
   if (r.items.length === 0) {
-    return `<p class="empty">No documents match${collection ? ` in ${escapeHtml(collection)}` : ""} — try fewer filters or a shorter query.</p>`;
+    const where = collection ? ` in ${escapeHtml(collection)}` : "";
+    return `<div class="empty-state">
+      <p class="empty-title">No records match${where}.</p>
+      <p class="empty-hint">Try the identifier without the year (ISO 9001 finds every edition), or
+      ${collection
+        ? `<a href="/search?q=${encodeURIComponent(query)}">search all collections</a> instead.`
+        : `browse the <a href="/collections">collections</a>.`}</p>
+    </div>`;
   }
   return r.items.map((d) => {
     const key = d.r2_key.slice(d.flavor.length + 1);
@@ -205,7 +219,7 @@ ${scopeMeta}
   </aside>
   <div>
     <p class="results-info">${result.total.toLocaleString("en-US")} documents</p>
-    ${renderResults(result, opts.scopeFlavor)}
+    ${renderResults(result, opts.scopeFlavor, params.q ?? "")}
     ${renderPager(result, qs)}
   </div>
 </div>`;

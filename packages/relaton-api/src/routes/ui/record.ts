@@ -58,35 +58,59 @@ ${rowsHtml}
 </section>`;
 }
 
-function renderOverview(record: Record<string, unknown>, familyQuery: string, collection: string): string {
-  // The record reads as a catalogue card: a language-neutral call number
-  // heads it, and every field — title languages included — is an equally
-  // weighted, labeled row. Standards are multilingual by institution;
-  // no language is a "translation" of another.
+// Each publisher speaks its own status vocabulary (ISO stage codes, RFC
+// states, BSI current/withdrawn, ...). Codes known to be opaque get a
+// reader-friendly form; every other value renders verbatim.
+const STATUS_WORDS: Record<string, string> = {
+  "60.60": "Published", "60.00": "Published", "50.00": "Final draft",
+  "50.20": "Final draft", "40.00": "Draft", "40.20": "Draft",
+  "90.92": "Withdrawn", "90.93": "Withdrawn", "95.99": "Withdrawn",
+  "90.60": "Under review", "60.98": "Cancelled",
+};
+const STATUS_CLASS: Record<string, string> = {
+  Published: "ok", "Final draft": "warn", Draft: "warn", "Under review": "warn",
+  Withdrawn: "bad", Cancelled: "bad",
+};
+
+const LANG_NAMES: Record<string, string> = {
+  en: "English", fr: "French", de: "German", es: "Spanish", it: "Italian",
+  zh: "Chinese", ja: "Japanese", ko: "Korean", ru: "Russian", ar: "Arabic",
+  pt: "Portuguese", nl: "Dutch", sv: "Swedish", no: "Norwegian", da: "Danish",
+  fi: "Finnish", pl: "Polish", cs: "Czech", tr: "Turkish", hu: "Hungarian",
+  el: "Greek", he: "Hebrew", th: "Thai", vi: "Vietnamese", uk: "Ukrainian",
+  ro: "Romanian", bg: "Bulgarian", hr: "Croatian", sk: "Slovak", sl: "Slovenian",
+  et: "Estonian", lv: "Latvian", lt: "Lithuanian", sr: "Serbian", id: "Indonesian",
+  ms: "Malay", fa: "Persian", hi: "Hindi", bn: "Bengali", la: "Latin",
+};
+const langName = (code: string): string =>
+  LANG_NAMES[code.toLowerCase()] ?? (code ? code.toUpperCase() : "");
+
+const ID_TYPE_LABELS: Record<string, string> = {
+  "iso-undated": "ISO (undated)", "iso-reference": "ISO (reference)",
+  "iso-tc": "ISO (TC)", ISSN: "ISSN", ISBN: "ISBN", URN: "URN", DOI: "DOI",
+};
+
+/**
+ * The reading header: status, the standard's own number, and its titles —
+ * every language equal, none a translation. Monospace never appears here;
+ * it belongs to copy targets only.
+ */
+function renderRecordHead(record: Record<string, unknown>, familyQuery: string, collection: string): string {
   const type = typeof record.type === "string" ? record.type : "";
+  const typeLabel = type ? type.replace(/(^|[\s_-])(\p{L})/gu, (m, s, c) => s + c.toUpperCase()) : "";
 
-  // Each publisher speaks its own status vocabulary (ISO stage codes, RFC
-  // states, BSI current/withdrawn, ...). Codes known to be opaque get a
-  // reader-friendly form; every other value renders verbatim.
-  const STATUS_WORDS: Record<string, string> = {
-    "60.60": "Published", "60.00": "Published", "50.00": "Final draft",
-    "50.20": "Final draft", "40.00": "Draft", "40.20": "Draft",
-    "90.92": "Withdrawn", "90.93": "Withdrawn", "95.99": "Withdrawn",
-    "90.60": "Under review", "60.98": "Cancelled",
-  };
-
-  const LANG_NAMES: Record<string, string> = {
-    en: "English", fr: "French", de: "German", es: "Spanish", it: "Italian",
-    zh: "Chinese", ja: "Japanese", ko: "Korean", ru: "Russian", ar: "Arabic",
-    pt: "Portuguese", nl: "Dutch", sv: "Swedish", no: "Norwegian", da: "Danish",
-    fi: "Finnish", pl: "Polish", cs: "Czech", tr: "Turkish", hu: "Hungarian",
-    el: "Greek", he: "Hebrew", th: "Thai", vi: "Vietnamese", uk: "Ukrainian",
-    ro: "Romanian", bg: "Bulgarian", hr: "Croatian", sk: "Slovak", sl: "Slovenian",
-    et: "Estonian", lv: "Latvian", lt: "Lithuanian", sr: "Serbian", id: "Indonesian",
-    ms: "Malay", fa: "Persian", hi: "Hindi", bn: "Bengali", la: "Latin",
-  };
-  const langName = (code: string): string =>
-    LANG_NAMES[code.toLowerCase()] ?? (code ? code.toUpperCase() : "");
+  let statusLabel = "";
+  const status = record.status as Record<string, unknown> | undefined;
+  if (typeof status === "object" && status !== null) {
+    const stage = contentOf(status.stage);
+    const substage = contentOf(status.substage);
+    const code = stage && substage ? `${stage}.${substage}` : stage || substage;
+    if (code) statusLabel = STATUS_WORDS[code] ?? code;
+  }
+  const statusPill = statusLabel
+    ? `<span class="status-pill status-${STATUS_CLASS[statusLabel] ?? "neutral"}"><span class="dot"></span>${escapeHtml(statusLabel)}</span>`
+    : "";
+  const typeChip = typeLabel ? `<span class="type-chip">${escapeHtml(typeLabel)}</span>` : "";
 
   const docids = asArray(record.docidentifier as unknown[]);
   const headingDocid = (() => {
@@ -96,47 +120,6 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
     return first ? (contentOf(first) || (typeof first === "string" ? first : "")) : "";
   })();
 
-  // Identifiers: labeled rows keyed by the identifier type; DOIs resolve.
-  const identifierRows = docids.map((d) => {
-    const obj = (typeof d === "object" && d !== null ? d : {}) as Record<string, unknown>;
-    const id = contentOf(obj) || (typeof d === "string" ? d : "");
-    if (!id) return "";
-    const rawIdType = typeof obj.type === "string" ? obj.type : "";
-    const ID_TYPE_LABELS: Record<string, string> = {
-      "iso-undated": "ISO (undated)", "iso-reference": "ISO (reference)",
-      "iso-tc": "ISO (TC)", ISSN: "ISSN", ISBN: "ISBN", URN: "URN", DOI: "DOI",
-    };
-    const idType = ID_TYPE_LABELS[rawIdType] ?? rawIdType;
-    const isDoi = idType === "DOI" || /^10\.\d+\//.test(id);
-    const value = isDoi
-      ? `<a href="https://doi.org/${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)} ↗</a>`
-      : `<code>${escapeHtml(id)}</code>`;
-    const primary = obj.primary === true ? ` <span class="row-note">primary</span>` : "";
-    return `<div class="ov-row"><span class="ov-key">${escapeHtml(idType || "Identifier")}</span><span class="ov-value">${value}${primary}</span></div>`;
-  }).join("");
-
-  // Record facts as labeled fields — never as tags.
-  const facts: [string, string][] = [];
-  if (type) facts.push(["Type", type.replace(/(^|[\s_-])(\p{L})/gu, (m, s, c) => s + c.toUpperCase())]);
-  {
-    const status = record.status as Record<string, unknown> | undefined;
-    if (typeof status === "object" && status !== null) {
-      const stage = contentOf(status.stage);
-      const substage = contentOf(status.substage);
-      const code = stage && substage ? `${stage}.${substage}` : stage || substage;
-      if (code) facts.push(["Status", STATUS_WORDS[code] ?? code]);
-    }
-  }
-  const edition = contentOf(record.edition);
-  if (edition) facts.push(["Edition", edition]);
-  const langList = asArray(record.language).map(String).map(langName).filter(Boolean).join(", ");
-  if (langList) facts.push(["Languages", langList]);
-  const factRows = facts
-    .map(([k, v]) => `<div class="ov-row"><span class="ov-key">${escapeHtml(k)}</span><span class="ov-value">${escapeHtml(v)}</span></div>`)
-    .join("");
-
-  // Titles: one composed title per language, rendered as parallel,
-  // first-class rows. Model type tags stay internal.
   type TitleSlots = { intro: string; main: string; part: string; composite: string };
   const titlesByLang = new Map<string, TitleSlots>();
   for (const t of asArray(record.title as unknown[])) {
@@ -165,6 +148,51 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
       if (!title || title === headingTitle) return "";
       return `<div class="title-row"><span class="title-lang">${escapeHtml(langName(l))}</span><span class="title-text">${escapeHtml(title)}</span></div>`;
     })
+    .join("");
+
+  return `
+<div class="record-head">
+<div class="record-eyebrow">${statusPill}${typeChip}</div>
+${headingDocid ? `<p class="doc-number">${escapeHtml(headingDocid)}</p>` : ""}
+${headingTitle ? `<h1 class="doc-h1">${escapeHtml(headingTitle)}</h1>` : ""}
+${otherTitleRows ? `<div class="title-parallel">${otherTitleRows}</div>` : ""}
+${familyQuery ? `<a class="series-link" href="/collections/${escapeHtml(collection)}?q=${encodeURIComponent(familyQuery)}">More in the ${escapeHtml(familyQuery)} series</a>` : ""}
+</div>`;
+}
+
+function renderOverview(record: Record<string, unknown>): string {
+  // The record reads as a catalogue card: a language-neutral call number
+  // heads it, and every field — title languages included — is an equally
+  // weighted, labeled row. Standards are multilingual by institution;
+  // no language is a "translation" of another.
+  const type = typeof record.type === "string" ? record.type : "";
+  const docids = asArray(record.docidentifier as unknown[]);
+
+  // Identifiers: labeled rows keyed by the identifier type; DOIs resolve.
+  const identifierRows = docids.map((d) => {
+    const obj = (typeof d === "object" && d !== null ? d : {}) as Record<string, unknown>;
+    const id = contentOf(obj) || (typeof d === "string" ? d : "");
+    if (!id) return "";
+    const rawIdType = typeof obj.type === "string" ? obj.type : "";
+    const idType = ID_TYPE_LABELS[rawIdType] ?? rawIdType;
+    const isDoi = idType === "DOI" || /^10\.\d+\//.test(id);
+    const value = isDoi
+      ? `<a href="https://doi.org/${encodeURIComponent(id)}" target="_blank" rel="noopener">${escapeHtml(id)} ↗</a>`
+      : escapeHtml(id);
+    const primary = obj.primary === true ? ` <span class="row-note">primary</span>` : "";
+    const copy = `<button type="button" class="icon-btn" data-copy-text="${escapeHtml(id)}" title="Copy ${escapeHtml(idType || "identifier")}" aria-label="Copy ${escapeHtml(idType || "identifier")}"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H4A1.5 1.5 0 0 0 2.5 3.5v5A1.5 1.5 0 0 0 4 10h1.5"/></svg></button>`;
+    return `<div class="ov-row"><span class="ov-key">${escapeHtml(idType || "Identifier")}</span><span class="ov-value">${value}${primary}</span>${copy}</div>`;
+  }).join("");
+
+  // Record facts as labeled fields — never as tags.
+  const facts: [string, string][] = [];
+  if (type) facts.push(["Type", type.replace(/(^|[\s_-])(\p{L})/gu, (m, s, c) => s + c.toUpperCase())]);
+  const edition = contentOf(record.edition);
+  if (edition) facts.push(["Edition", edition]);
+  const langList = asArray(record.language).map(String).map(langName).filter(Boolean).join(", ");
+  if (langList) facts.push(["Languages", langList]);
+  const factRows = facts
+    .map(([k, v]) => `<div class="ov-row"><span class="ov-key">${escapeHtml(k)}</span><span class="ov-value">${escapeHtml(v)}</span></div>`)
     .join("");
 
   const dates = asArray(record.date as unknown[]).map((d) => {
@@ -242,7 +270,7 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
       .split(/(?=NOTE\s+\d)/g)
       .map((seg) => seg.trim())
       .filter(Boolean)
-      .map((seg) => `<p>${escapeHtml(seg)}</p>`)
+      .map((seg) => `<p${/^NOTE\s+\d/.test(seg) ? ' class="note"' : ""}>${escapeHtml(seg)}</p>`)
       .join("");
     return html || `<p>${escapeHtml(text)}</p>`;
   }).join("");
@@ -277,10 +305,7 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
     const part = contentOf(obj.partnumber);
     const text = [titleText, number ? `no. ${escapeHtml(number)}` : "", part ? `part ${escapeHtml(part)}` : ""].filter(Boolean).join(" · ");
     if (!text) return "";
-    const siblings = familyQuery
-      ? `<a class="series-link" href="/collections/${escapeHtml(collection)}?q=${encodeURIComponent(familyQuery)}">other documents in this series ↗</a>`
-      : "";
-    return `<div class="ov-row"><span>${escapeHtml(text)}</span>${siblings}</div>`;
+    return `<div class="ov-row"><span>${escapeHtml(text)}</span></div>`;
   }).join("");
 
   const copyright = record.copyright as Record<string, unknown> | undefined;
@@ -298,11 +323,7 @@ function renderOverview(record: Record<string, unknown>, familyQuery: string, co
   }
 
   return `
-${headingDocid ? `<p class="doc-number"><code>${escapeHtml(headingDocid)}</code></p>` : ""}
-${headingTitle ? `<h1 class="doc-h1">${escapeHtml(headingTitle)}</h1>` : ""}
-${otherTitleRows ? `<div class="title-parallel">${otherTitleRows}</div>` : ""}
 ${(factRows || identifierRows || dates) ? `<section class="ov-section"><h3>General information</h3>${factRows}${identifierRows}${dates}</section>` : ""}
-${familyQuery ? `<div class="ov-series"><a class="series-link" href="/collections/${escapeHtml(collection)}?q=${encodeURIComponent(familyQuery)}">other documents in the ${escapeHtml(familyQuery)} series ↗</a></div>` : ""}
 ${section("contributor", "Contributors", contributorsHtml)}
 ${section("link", "Links", links)}
 ${abstracts ? `<section class="ov-section"><h3>${fieldLabel("abstract", "Abstract")}</h3>${abstracts}</section>` : ""}
@@ -370,29 +391,40 @@ export function renderRecordPage({ collection, key, docid, body }: RecordPageInp
     return typeof first?.content === "string" ? first.content : docid;
   })();
   const fetchEntry = `* [[[${anchor},${primaryDocid}]]]`;
-  const citePanel = `
+  const citeTools = `
+<section class="tool-card">
+<h3>Cite</h3>
 ${citeStyles.length ? `<div class="cite-styles">${citeStyles.map((s) => `
 <div class="cite-style-row">
 <span class="cite-style-label">${escapeHtml(s.label)}</span>
 <span class="cite-style-text">${escapeHtml(s.text)}</span>
-<button type="button" class="copy-btn" data-copy-text="${escapeHtml(s.text)}">Copy</button>
+<button type="button" class="icon-btn" data-copy-text="${escapeHtml(s.text)}" title="Copy the ${escapeHtml(s.label)} citation" aria-label="Copy the ${escapeHtml(s.label)} citation"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H4A1.5 1.5 0 0 0 2.5 3.5v5A1.5 1.5 0 0 0 4 10h1.5"/></svg></button>
 </div>`).join("")}</div>` : ""}
-<div class="cite-panel">
-<span class="cite-anchor" title="Citation anchor (derived from the identifier)"><code>${escapeHtml(anchor)}</code></span>
-<button type="button" class="copy-btn" data-copy-text="&lt;&lt;${escapeHtml(anchor)}&gt;&gt;">Copy <code>&lt;&lt;${escapeHtml(anchor)}&gt;&gt;</code></button>
-<button type="button" class="copy-btn" data-copy-text="cite:[${escapeHtml(anchor)}]">Copy <code>cite:[${escapeHtml(anchor)}]</code></button>
-<button type="button" class="copy-btn" data-copy-text="${escapeHtml(fetchEntry)}" title="One-line entry: Metanorma fetches the full record by this identifier at build time">Copy fetch entry</button>
-${asciibib ? `
-<button type="button" class="mn-cta" data-copy-asciibib title="Copy the AsciiBib representation">
-  <img class="mn-icon mn-light-bg" src="/assets/metanorma-icon-light-bg.svg" alt="Metanorma">
-  <img class="mn-icon mn-dark-bg" src="/assets/metanorma-icon-dark-bg.svg" alt="Metanorma">
-  <span class="mn-cta-text"><strong>Working with Metanorma?</strong>
-  Click to obtain the AsciiBib representation</span>
-</button>` : ""}
+<div class="anchor-row">
+<span class="ov-key">Anchor</span><code class="anchor-code">${escapeHtml(anchor)}</code>
+<button type="button" class="icon-btn" data-copy-text="cite:[${escapeHtml(anchor)}]" title="Copy cite:[${escapeHtml(anchor)}]" aria-label="Copy citation anchor"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2A1.5 1.5 0 0 0 9 2H4A1.5 1.5 0 0 0 2.5 3.5v5A1.5 1.5 0 0 0 4 10h1.5"/></svg></button>
 </div>
-<p class="cite-hint">Paste the AsciiBib block under a <code>[bibliography]</code> heading in your Metanorma
-document, then cite with <code>&lt;&lt;${escapeHtml(anchor)}&gt;&gt;</code> or <code>cite:[${escapeHtml(anchor)}]</code>.
-Fields are explained on <a href="https://www.relaton.org/model/" target="_blank" rel="noopener">relaton.org/model</a>.</p>`;
+</section>
+${asciibib ? `
+<details class="mn-reveal">
+<summary>
+<img class="mn-icon mn-light-bg" src="/assets/metanorma-icon-light-bg.svg" alt="">
+<img class="mn-icon mn-dark-bg" src="/assets/metanorma-icon-dark-bg.svg" alt="">
+<span class="mn-cta-text"><strong>Cite in Metanorma</strong><br>
+<small>Fetch entry and AsciiBib, shown before you copy</small></span>
+<svg class="mn-chevron" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+</summary>
+<div class="mn-body">
+<p class="mn-step">1 · Add the fetch entry under a <code>[bibliography]</code> heading — Metanorma fetches the full record at build time:</p>
+<pre class="mn-code">${escapeHtml(fetchEntry)}</pre>
+<button type="button" class="copy-btn" data-copy-text="${escapeHtml(fetchEntry)}">Copy fetch entry</button>
+<p class="mn-step">2 · Or pin this exact record as AsciiBib instead:</p>
+<pre class="mn-code">${escapeHtml(asciibib)}</pre>
+<button type="button" class="copy-btn" data-copy-text="${escapeHtml(asciibib)}">Copy AsciiBib</button>
+<p class="mn-step">3 · Cite it as <code>&lt;&lt;${escapeHtml(anchor)}&gt;&gt;</code> or <code>cite:[${escapeHtml(anchor)}]</code>.</p>
+</div>
+</details>` : ""}
+<p class="cite-hint">Citation fields are explained on <a href="https://www.relaton.org/model/" target="_blank" rel="noopener">relaton.org/model</a>.</p>`;
 
   const tabs: string[] = [];
   const panes: string[] = [];
@@ -402,23 +434,30 @@ Fields are explained on <a href="https://www.relaton.org/model/" target="_blank"
     panes.push(`<pre id="pane-${id}" role="tabpanel" aria-labelledby="tab-btn-${id}"${first ? "" : " hidden"}>${contentHtml}</pre>`);
   };
 
-  if (record) addTab("overview", "Overview", renderOverview(record, familyQueryOf(record, key), collection));
   if (yamlText) addTab("yaml", "Relaton YAML", highlightYaml(yamlText));
   addTab("xml", isXml ? "Relaton XML" : "Source", highlightXml(body));
   if (asciibib) addTab("asciibib", "AsciiBib", escapeHtml(asciibib));
 
   return `
-<p class="meta">${escapeHtml(collection)} · key <code>${escapeHtml(key)}</code> ·
+<p class="meta">${escapeHtml(collection)} collection ·
 <a href="${entryPath}?raw=1">raw bytes</a> ·
 <a href="/api/v1/document?code=${encodeURIComponent(docid)}">/api/v1/document</a> ·
-<a href="/collections/${escapeHtml(collection)}">back to ${escapeHtml(collection)}</a></p>
-${citePanel}
+<a href="/collections/${escapeHtml(collection)}">all ${escapeHtml(collection)} records</a></p>
+${record ? renderRecordHead(record, familyQueryOf(record, key), collection) : ""}
+<div class="record-body">
+<div class="record-main">${record ? renderOverview(record) : ""}</div>
+<aside class="record-tools">${citeTools}</aside>
+</div>
+<section class="machine-forms">
+<h2>Machine forms</h2>
+<p class="machine-hint">Copyable source of this record — monospace on purpose.</p>
 <div class="tabs" role="tablist">
 ${tabs.join("\n")}
 </div>
 <div class="panes">
 ${panes.join("\n")}
 </div>
+</section>
 <script>
 document.querySelectorAll('.tab-btn[data-pane]').forEach(function (btn) {
   btn.addEventListener('click', function () {
@@ -444,14 +483,6 @@ document.querySelectorAll('[data-copy-text]').forEach(function (btn) {
     setTimeout(function () { btn.classList.remove('copied'); }, 1500);
   });
 });
-var asciibibBtn = document.querySelector('[data-copy-asciibib]');
-if (asciibibBtn) asciibibBtn.addEventListener('click', function () {
-  var pane = document.getElementById('pane-asciibib');
-  var text = pane ? pane.textContent : '';
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
-  asciibibBtn.classList.add('copied');
-  setTimeout(function () { asciibibBtn.classList.remove('copied'); }, 1500);
-});
 </script>`;
 }
 
@@ -468,14 +499,34 @@ export const RECORD_CSS = `
   .docid-badge.primary { outline: 1px solid var(--accent-soft); }
   .docid-badge a { color: inherit; }
   .docid-badge small { color: var(--muted); font-size: 11px; }
-  .doc-number { margin: 0; font-size: 14px; }
-  .doc-number code {
-    font-family: var(--mono); font-size: 19px; font-weight: 600; letter-spacing: 0.01em;
-    background: none; color: var(--fg); padding: 0; border: 0;
+  .record-head { margin: 4px 0 20px; }
+  .record-eyebrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 2px; }
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border);
+    border-radius: 999px; padding: 3px 11px 3px 9px; font-size: 12.5px; font-weight: 600; color: var(--fg-2);
+    background: var(--bg-soft);
   }
-  .doc-h1 { font-size: 26px; font-weight: 700; line-height: 1.25; margin: 2px 0 8px; letter-spacing: -0.01em; }
+  .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .status-pill.status-ok .dot { background: #12a150; box-shadow: 0 0 0 3px rgba(18, 161, 80, 0.16); }
+  .status-pill.status-warn .dot { background: #d69e2e; box-shadow: 0 0 0 3px rgba(214, 158, 46, 0.16); }
+  .status-pill.status-bad .dot { background: #e5484d; box-shadow: 0 0 0 3px rgba(229, 72, 61, 0.16); }
+  .type-chip {
+    display: inline-flex; border: 1px solid var(--accent-soft); color: var(--accent);
+    border-radius: 999px; padding: 3px 11px; font-size: 12.5px; font-weight: 600; background: var(--bg);
+  }
+  .doc-number { margin: 10px 0 0; font-size: 20px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.2; }
+  .doc-h1 { font-size: 29px; font-weight: 800; line-height: 1.2; margin: 2px 0 10px; letter-spacing: -0.012em; }
   .row-note { font-size: 11px; color: var(--muted); margin-left: 8px; }
-  .ov-value code { font-family: var(--mono); font-size: 13.5px; background: var(--bg-soft); padding: 1px 6px; border-radius: 4px; }
+  .ov-row .icon-btn { margin-left: auto; align-self: center; }
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border: 1px solid transparent; border-radius: 7px;
+    background: none; color: var(--muted); cursor: pointer; flex: none;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+  }
+  .icon-btn:hover { color: var(--accent); border-color: var(--accent-soft); background: var(--accent-soft); }
+  .icon-btn:focus-visible, .copy-btn:focus-visible, .mn-reveal summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .icon-btn.copied { color: var(--success); border-color: var(--success); }
   .title-parallel { border-left: 1px solid var(--border); }
   .title-row {
     display: grid; grid-template-columns: 108px 1fr; gap: 14px; align-items: baseline;
@@ -486,7 +537,10 @@ export const RECORD_CSS = `
     font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted);
   }
   .title-text { font-size: 17.5px; line-height: 1.4; font-weight: 500; }
+  .record-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 32px; align-items: start; margin-top: 4px; }
+  @media (max-width: 920px) { .record-body { grid-template-columns: 1fr; } }
   .ov-section { margin: 22px 0; }
+  .ov-section:first-child { margin-top: 6px; }
   .ov-section h3 {
     font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--muted); margin: 0 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px;
@@ -496,32 +550,64 @@ export const RECORD_CSS = `
   .ov-row { display: flex; gap: 12px; padding: 3px 0; font-size: 14.5px; }
   .ov-key { min-width: 96px; color: var(--muted); font-size: 13px; padding-top: 2px; }
   .ov-section p { font-size: 14.5px; line-height: 1.65; margin: 0 0 10px; }
+  .ov-section p.note {
+    font-size: 13px; color: var(--fg-2); border-left: 2px solid var(--border);
+    padding-left: 12px; margin-top: -2px;
+  }
   .series-link { font-size: 12.5px; }
-  .cite-panel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 6px; }
-  .cite-anchor code { background: var(--accent-soft); color: var(--accent); padding: 6px 10px; border-radius: 6px; }
+  .record-tools { display: flex; flex-direction: column; gap: 14px; }
+  .tool-card {
+    border: 1px solid var(--border); border-radius: 12px; background: var(--bg-soft);
+    padding: 14px 16px; margin: 0;
+  }
+  .tool-card h3 {
+    font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); margin: 0 0 10px;
+  }
+  .anchor-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .anchor-row .ov-key { min-width: 0; }
+  .anchor-code { font-family: var(--mono); font-size: 12.5px; background: var(--accent-soft); color: var(--accent); padding: 3px 8px; border-radius: 6px; }
   .copy-btn { font: 13px var(--font); padding: 8px 14px; border: 1px solid var(--border); border-radius: 8px;
               background: var(--bg); color: var(--fg-2); cursor: pointer; }
   .copy-btn code { font-size: 12px; }
   .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
   .copy-btn.copied { color: var(--success); border-color: var(--success); }
-  .mn-cta {
-    display: inline-flex; align-items: center; gap: 10px; text-align: left;
-    padding: 8px 16px 8px 10px; border: 1px solid rgba(114, 94, 219, 0.45); border-radius: 10px;
-    background: rgba(124, 96, 230, 0.08); cursor: pointer;
-    font: 13px/1.45 var(--font); color: var(--fg-2);
-    transition: border-color 0.15s, background 0.15s;
+  .mn-reveal {
+    border: 1px solid rgba(114, 94, 219, 0.45); border-radius: 12px;
+    background: rgba(124, 96, 230, 0.07); overflow: hidden;
   }
-  .mn-cta:hover { border-color: #725edb; background: rgba(124, 96, 230, 0.14); }
-  .mn-cta strong { color: var(--fg); }
-  .mn-icon { width: 26px; height: 26px; display: block; }
-  .mn-cta .mn-light-bg { display: none; }
-  html.dark .mn-cta .mn-light-bg { display: block; }
-  html.dark .mn-cta .mn-dark-bg { display: none; }
-  .mn-cta.copied { border-color: var(--success); }
-  .mn-cta.copied .mn-cta-text strong { color: var(--success); }
-  .cite-hint { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
-  .cite-styles { display: flex; flex-direction: column; gap: 6px; margin: 0 0 10px; }
-  .cite-style-row { display: grid; grid-template-columns: 90px 1fr auto; gap: 10px; align-items: baseline; }
+  .mn-reveal summary {
+    display: flex; align-items: center; gap: 11px; padding: 12px 14px;
+    cursor: pointer; list-style: none; color: var(--fg-2); font-size: 14px; line-height: 1.4;
+    transition: background 0.12s;
+  }
+  .mn-reveal summary::-webkit-details-marker { display: none; }
+  .mn-reveal summary:hover { background: rgba(124, 96, 230, 0.09); }
+  .mn-reveal[open] summary { border-bottom: 1px dashed rgba(114, 94, 219, 0.4); }
+  .mn-reveal strong { color: var(--fg); }
+  .mn-reveal small { color: var(--muted); font-size: 12px; }
+  .mn-icon { width: 26px; height: 26px; display: block; flex: none; }
+  .mn-reveal .mn-light-bg { display: none; }
+  html.dark .mn-reveal .mn-light-bg { display: block; }
+  html.dark .mn-reveal .mn-dark-bg { display: none; }
+  .mn-chevron { margin-left: auto; color: var(--muted); transition: transform 0.15s ease; flex: none; }
+  .mn-reveal[open] .mn-chevron { transform: rotate(90deg); }
+  @media (prefers-reduced-motion: reduce) { .mn-chevron { transition: none; } }
+  .mn-body { padding: 4px 14px 14px; }
+  .mn-step {
+    font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); margin: 12px 0 6px;
+  }
+  .mn-step code, .cite-hint code { font-family: var(--mono); font-size: 11.5px; background: var(--bg); border: 1px solid var(--border); padding: 1px 5px; border-radius: 4px; }
+  .mn-code {
+    font-family: var(--mono); font-size: 12px; line-height: 1.55; margin: 0 0 8px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; white-space: pre-wrap; word-break: break-word;
+    max-height: 240px; overflow: auto;
+  }
+  .cite-hint { color: var(--muted); font-size: 12.5px; margin: 0; }
+  .cite-styles { display: flex; flex-direction: column; gap: 8px; margin: 0; }
+  .cite-style-row { display: grid; grid-template-columns: 64px 1fr 26px; gap: 8px; align-items: baseline; }
   .cite-style-label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
   .cite-style-text { font-size: 14px; }
   .tok-tag { color: var(--accent); }
@@ -531,5 +617,7 @@ export const RECORD_CSS = `
   .tok-com { color: var(--muted); font-style: italic; }
   .tok-key { color: var(--accent); }
   .tok-val { color: inherit; }
-  #pane-overview { background: none; border: none; padding: 0; white-space: normal; }
+  .machine-forms { margin-top: 30px; border-top: 1px solid var(--border); padding-top: 20px; }
+  .machine-forms h2 { font-size: 15px; font-weight: 700; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .machine-hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
 `;

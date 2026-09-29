@@ -100,6 +100,40 @@ cloudStoreRoutes.openapi(collectionsRoute, async (c) => {
   });
 });
 
+// Citation files: BibTeX, RIS, and CSL-JSON downloads for one record.
+cloudStoreRoutes.get("/collections/:collection/entries/:key/export.:format", async (c) => {
+  const collection = c.req.param("collection");
+  const key = c.req.param("key");
+  const format = c.req.param("format") ?? "";
+  const FORMATS: Record<string, { ext: string; type: string }> = {
+    bib: { ext: "bib", type: "application/x-bibtex" },
+    ris: { ext: "ris", type: "application/x-research-info-systems" },
+    "csl.json": { ext: "csl.json", type: "application/json" },
+  };
+  const spec = FORMATS[format];
+  if (!spec) return c.text(`unknown export format: ${format}`, 404);
+
+  const row = await findEntryRow(c.env.DB, collection, key);
+  if (!row) return c.text(`no such entry: ${key}`, 404);
+  const obj = await c.env.BUCKET.get(row.r2_key);
+  if (!obj) return c.text(`no such entry: ${key}`, 404);
+  const body = await obj.text();
+
+  const { fromXml, toBibtex, toRis, toCslJson } = await import("relaton");
+  const parsed = fromXml(body);
+  if (!parsed.ok) return c.text("record could not be parsed for export", 502);
+  const slug = row.docid?.replace(/[^A-Za-z0-9]+/g, "") || "relaton";
+
+  const content = format === "bib" ? toBibtex(parsed.item)
+    : format === "ris" ? toRis(parsed.item)
+    : toCslJson(parsed.item);
+  return c.text(content, 200, {
+    "content-type": spec.type + "; charset=utf-8",
+    "content-disposition": `attachment; filename="${slug}.${spec.ext}"`,
+    "cache-control": "public, max-age=300, stale-while-revalidate=86400",
+  });
+});
+
 // Browsable collection page: the shared search engine scoped to one flavor.
 cloudStoreRoutes.get("/collections/:collection", async (c) => {
   const collection = c.req.param("collection");

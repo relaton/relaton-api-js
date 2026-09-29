@@ -90,6 +90,49 @@ adminRoutes.post("/admin/backfill-abstracts/:flavor", async (c) => {
   });
 });
 
+adminRoutes.post("/admin/backfill-status/:flavor", async (c) => {
+  if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
+    return c.text("Forbidden.", 403);
+  }
+  const flavor = c.req.param("flavor").replace(/[^a-z0-9-]/gi, "");
+  const limit = Math.min(500, Number(c.req.query("limit") ?? "200") || 200);
+  const cursor = Number(c.req.query("cursor") ?? "0") || 0;
+
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, r2_key FROM documents
+     WHERE flavor = ?1 AND id > ?2 AND status IS NULL ORDER BY id LIMIT ?3`,
+  ).bind(flavor, cursor, limit).all<{ id: number; r2_key: string }>();
+
+  let done = 0;
+  let lastId = cursor;
+  for (const row of results ?? []) {
+    lastId = row.id;
+    const obj = await c.env.BUCKET.get(row.r2_key);
+    if (!obj) continue;
+    const body = await obj.text();
+    let status: string | null = null;
+    if (body.trimStart().startsWith("<")) {
+      const m = body.match(/<status[^>]*>([\s\S]*?)<\/status>/);
+      if (m?.[1]) {
+        const stage = m[1].match(/<stage[^>]*>([^<]+)<\/stage>/)?.[1]?.trim();
+        const substage = m[1].match(/<substage[^>]*>([^<]+)<\/substage>/)?.[1]?.trim();
+        status = stage && substage ? `${stage}.${substage}` : stage ??
+          (m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim() || null);
+      }
+    }
+    if (status) {
+      await c.env.DB.prepare("UPDATE documents SET status = ?1 WHERE id = ?2")
+        .bind(status.slice(0, 32), row.id).run();
+      done += 1;
+    }
+  }
+
+  return c.json({
+    flavor, scanned: results?.length ?? 0, updated: done, lastId,
+    nextCursor: (results?.length ?? 0) === limit ? lastId : null,
+  });
+});
+
 adminRoutes.post("/admin/ingest/:flavor", async (c) => {
   if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
     return c.text("Forbidden.", 403);

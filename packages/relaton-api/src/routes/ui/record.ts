@@ -150,13 +150,22 @@ function renderRecordHead(record: Record<string, unknown>, familyQuery: string, 
     })
     .join("");
 
+  // The publisher's mark belongs on the card, like a letterhead.
+  const PNG_LOGOS = new Set(["omg", "cenelec"]);
+  const publisherMark = /^[a-z0-9-]+$/.test(collection)
+    ? `<a class="publisher-mark" href="/collections/${encodeURIComponent(collection)}" title="${escapeHtml(collection)} collection"><img src="https://www.relaton.org/logos/${collection}-logo.${PNG_LOGOS.has(collection) ? "png" : "svg"}" alt="${escapeHtml(collection)}" loading="lazy" onerror="this.parentElement.remove()"></a>`
+    : "";
+
   return `
 <div class="record-head">
+${publisherMark}
+<div class="record-head-main">
 <div class="record-eyebrow">${statusPill}${typeChip}</div>
 ${headingDocid ? `<p class="doc-number">${escapeHtml(headingDocid)}</p>` : ""}
 ${headingTitle ? `<h1 class="doc-h1">${escapeHtml(headingTitle)}</h1>` : ""}
 ${otherTitleRows ? `<div class="title-parallel">${otherTitleRows}</div>` : ""}
 ${familyQuery ? `<a class="series-link" href="/collections/${escapeHtml(collection)}?q=${encodeURIComponent(familyQuery)}">More in the ${escapeHtml(familyQuery)} series</a>` : ""}
+</div>
 </div>`;
 }
 
@@ -284,7 +293,30 @@ function renderOverview(record: Record<string, unknown>): string {
 
   const relations = asArray(record.relation as unknown[]).map((r) => {
     const obj = (typeof r === "object" && r !== null ? r : {}) as Record<string, unknown>;
-    const typeAttr = typeof obj.type === "string" ? escapeHtml(obj.type) : "relation";
+    const RELATION_LABELS: Record<string, string> = {
+      obsoletes: "Obsoletes", obsoletedBy: "Obsoleted by",
+      supersedes: "Supersedes", supersededBy: "Superseded by",
+      updates: "Updates", updatedBy: "Updated by",
+      amends: "Amends", amendedBy: "Amended by",
+      corrects: "Corrects", correctedBy: "Corrected by",
+      replaces: "Replaces", replacedBy: "Replaced by",
+      cites: "Cites", isCitedIn: "Cited in",
+      isDescribedIn: "Described in", describes: "Describes",
+      hasPart: "Has part", partOf: "Part of",
+      includes: "Includes", includedIn: "Included in",
+      successorOf: "Successor of", adaptedFrom: "Adapted from",
+      hasAdaptation: "Has adaptation", adoptedFrom: "Adopted from",
+      adoptedAs: "Adopted as", reviewOf: "Review of", hasReview: "Has review",
+      commentaryOf: "Commentary on", hasCommentary: "Has commentary",
+      hasComplement: "Has complement", complementOf: "Complement of",
+      related: "Related to", instanceOf: "Instance of", hasInstance: "Has instance",
+      manifestationOf: "Manifestation of", excerptOf: "Excerpt of", hasExcerpt: "Has excerpt",
+    };
+    const rawType = typeof obj.type === "string" ? obj.type : "";
+    const typeAttr = rawType
+      ? (RELATION_LABELS[rawType] ??
+        rawType.replace(/[-_](.)/g, (_, c) => ` ${c.toUpperCase()}`).replace(/^./, (c) => c.toUpperCase()))
+      : "Related";
     const bibitem = obj.bibitem as Record<string, unknown> | undefined;
     const relatedDocid = asArray(bibitem?.docidentifier as unknown[])
       .map((d) => contentOf(typeof d === "object" && d !== null ? (d as Record<string, unknown>).content : d))
@@ -393,7 +425,7 @@ export function renderRecordPage({ collection, key, docid, body }: RecordPageInp
   const fetchEntry = `* [[[${anchor},${primaryDocid}]]]`;
   const citeTools = `
 <section class="tool-card">
-<h3>Cite</h3>
+<h3>Cite this record</h3>
 ${citeStyles.length ? `<div class="cite-styles">${citeStyles.map((s) => `
 <div class="cite-style-row">
 <span class="cite-style-label">${escapeHtml(s.label)}</span>
@@ -428,20 +460,20 @@ ${asciibib ? `
 
   const tabs: string[] = [];
   const panes: string[] = [];
-  const addTab = (id: string, label: string, contentHtml: string) => {
+  const addTab = (id: string, label: string, contentHtml: string, rawText: string) => {
     const first = tabs.length === 0;
     tabs.push(`<button class="tab-btn" id="tab-btn-${id}" role="tab" aria-selected="${first}" aria-controls="pane-${id}" data-pane="pane-${id}">${label}</button>`);
-    panes.push(`<pre id="pane-${id}" role="tabpanel" aria-labelledby="tab-btn-${id}"${first ? "" : " hidden"}>${contentHtml}</pre>`);
+    panes.push(`<div class="pane-wrap" id="wrap-${id}"${first ? "" : " hidden"}><div class="pane-bar"><button type="button" class="copy-btn" data-copy-text="${escapeHtml(rawText)}">Copy ${label}</button></div><pre id="pane-${id}" role="tabpanel" aria-labelledby="tab-btn-${id}">${contentHtml}</pre></div>`);
   };
 
-  if (yamlText) addTab("yaml", "Relaton YAML", highlightYaml(yamlText));
-  addTab("xml", isXml ? "Relaton XML" : "Source", highlightXml(body));
-  if (asciibib) addTab("asciibib", "AsciiBib", escapeHtml(asciibib));
+  if (yamlText) addTab("yaml", "Relaton YAML", highlightYaml(yamlText), yamlText);
+  addTab("xml", isXml ? "Relaton XML" : "Source", highlightXml(body), body);
+  if (asciibib) addTab("asciibib", "AsciiBib", escapeHtml(asciibib), asciibib);
 
   return `
 <p class="meta">${escapeHtml(collection)} collection ·
 <a href="${entryPath}?raw=1">raw bytes</a> ·
-<a href="/api/v1/document?code=${encodeURIComponent(docid)}">/api/v1/document</a> ·
+<a href="/api/v1/document?code=${encodeURIComponent(docid)}" title="/api/v1/document?code=${encodeURIComponent(docid)}">API</a> ·
 <a href="/collections/${escapeHtml(collection)}">all ${escapeHtml(collection)} records</a></p>
 ${record ? renderRecordHead(record, familyQueryOf(record, key), collection) : ""}
 <div class="record-body">
@@ -464,8 +496,8 @@ document.querySelectorAll('.tab-btn[data-pane]').forEach(function (btn) {
     document.querySelectorAll('.tab-btn[data-pane]').forEach(function (b) {
       b.setAttribute('aria-selected', String(b === btn));
     });
-    document.querySelectorAll('[role="tabpanel"]').forEach(function (p) {
-      p.hidden = p.id !== btn.dataset.pane;
+    document.querySelectorAll('.pane-wrap').forEach(function (p) {
+      p.hidden = p.id !== 'wrap-' + btn.dataset.pane;
     });
   });
 });
@@ -499,7 +531,17 @@ export const RECORD_CSS = `
   .docid-badge.primary { outline: 1px solid var(--accent-soft); }
   .docid-badge a { color: inherit; }
   .docid-badge small { color: var(--muted); font-size: 11px; }
-  .record-head { margin: 4px 0 20px; }
+  .record-head { margin: 4px 0 20px; display: flex; gap: 18px; align-items: flex-start; }
+  .publisher-mark {
+    flex: none; width: 56px; height: 56px; border: 1px solid var(--border); border-radius: 12px;
+    background: #fff; display: flex; align-items: center; justify-content: center; margin-top: 14px;
+    text-decoration: none; overflow: hidden;
+    transition: border-color 0.12s;
+  }
+  .publisher-mark:hover { border-color: var(--accent); }
+  .publisher-mark img { max-width: 40px; max-height: 40px; object-fit: contain; }
+  .record-head-main { min-width: 0; }
+  @media (max-width: 600px) { .record-head { flex-direction: column-reverse; gap: 10px; } .publisher-mark { margin-top: 0; align-self: flex-end; width: 48px; height: 48px; } .publisher-mark img { max-width: 34px; max-height: 34px; } }
   .record-eyebrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 2px; }
   .status-pill {
     display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border);
@@ -620,4 +662,7 @@ export const RECORD_CSS = `
   .machine-forms { margin-top: 30px; border-top: 1px solid var(--border); padding-top: 20px; }
   .machine-forms h2 { font-size: 15px; font-weight: 700; margin: 0 0 2px; letter-spacing: -0.01em; }
   .machine-hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+  .pane-wrap { position: relative; }
+  .pane-bar { display: flex; justify-content: flex-end; margin-bottom: -34px; padding: 6px 8px; position: relative; z-index: 2; }
+  .pane-bar .copy-btn { font-size: 12px; padding: 5px 12px; background: var(--bg); }
 `;

@@ -187,5 +187,6 @@ cloudStoreRoutes.openapi(entryRoute, async (c) => {
   return c.text(body, 200, {
     "content-type": contentTypeFor(row.r2_key),
     etag: `"${collection}/${key}"`,
+    "cache-control": "public, max-age=300, stale-while-revalidate=86400",
   });
 });

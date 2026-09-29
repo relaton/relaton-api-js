@@ -131,6 +131,47 @@ const CORE_CSS = `
   footer a { color: var(--accent); }
 `;
 
+
+/**
+ * A missing record or collection, framed for a browser: name what was
+ * looked for and offer the next step. Never cached — a record may appear
+ * the moment its flavor is ingested.
+ */
+export function renderNotFound(opts: {
+  heading: string;
+  detail: string;
+  actions: { label: string; href: string }[];
+}): string {
+  return layout({
+    title: `${opts.heading} — Relaton API`,
+    activeNav: "",
+    css: `
+  .nf-card {
+    border: 1px solid var(--border); border-radius: 16px; padding: 30px 28px 26px;
+    margin: 30px 0 0; overflow: hidden; text-align: center;
+    background:
+      radial-gradient(120% 150% at 50% 0%, var(--accent-soft) 0%, transparent 55%),
+      linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
+  }
+  .nf-title { font-size: 24px; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .nf-detail { color: var(--muted); font-size: 14.5px; margin: 0 0 18px; }
+  .nf-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .nf-actions a {
+    display: inline-block; padding: 9px 18px; border-radius: 999px; text-decoration: none;
+    border: 1px solid var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 14px;
+    background: var(--bg); transition: border-color 0.12s, background 0.12s;
+  }
+  .nf-actions a:hover { border-color: var(--accent); background: var(--accent-soft); }
+`,
+    body: `<div class="nf-card">
+  <p class="nf-title">${escapeHtml(opts.heading)}</p>
+  <p class="nf-detail">${escapeHtml(opts.detail)}</p>
+  <div class="nf-actions">${opts.actions.map((a) =>
+      `<a href="${a.href}">${escapeHtml(a.label)}</a>`).join("")}</div>
+</div>`,
+  });
+}
+
 export function layout({ title, body, css, activeNav }: LayoutOptions): string {
   const navLinks = NAV.map((item) => {
     const current = item.id === activeNav ? ' aria-current="page"' : "";

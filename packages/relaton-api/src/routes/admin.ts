@@ -176,15 +176,16 @@ adminRoutes.post("/admin/embed-records", async (c) => {
   const limit = Math.min(200, Number(c.req.query("limit") ?? "100") || 100);
   const cursor = Number(c.req.query("cursor") ?? "0") || 0;
 
-  // Only rows with embeddable text; id order keeps the walk resumable.
+  // Scan raw rows by id so the cursor always advances a full page —
+  // filtering embeddable rows here would end the walk early at the
+  // first gap. Rows without embeddable text are skipped in code.
   const { results } = await c.env.DB.prepare(
     `SELECT id, docid, title_en, abstract FROM documents
-     WHERE id > ?1 AND (title_en IS NOT NULL OR abstract IS NOT NULL)
-     ORDER BY id LIMIT ?2`,
+     WHERE id > ?1 ORDER BY id LIMIT ?2`,
   ).bind(cursor, limit).all<{ id: number; docid: string | null; title_en: string | null; abstract: string | null }>();
 
-  const rows = results ?? [];
-  if (!rows.length) return c.json({ embedded: 0, lastId: cursor, nextCursor: null });
+  const rows = (results ?? []).filter((r) => r.title_en !== null || r.abstract !== null);
+  if (!(results ?? []).length) return c.json({ embedded: 0, lastId: cursor, nextCursor: null });
 
   // Vectors carry the document id in metadata so matches map straight
   // back to D1 without a lookup.
@@ -208,10 +209,10 @@ adminRoutes.post("/admin/embed-records", async (c) => {
     await c.env.VECTORIZE.upsert(upserts);
   }
 
-  const lastId = rows.at(-1)?.id ?? cursor;
+  const lastId = (results ?? []).at(-1)?.id ?? cursor;
   return c.json({
     embedded: rows.length, lastId,
-    nextCursor: rows.length === limit ? lastId : null,
+    nextCursor: (results?.length ?? 0) === limit ? lastId : null,
   });
 });
 

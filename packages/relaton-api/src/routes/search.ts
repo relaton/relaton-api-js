@@ -100,7 +100,10 @@ function parseParams(url: URL): SearchParams {
     const v = url.searchParams.get(name);
     return v && /^\d+$/.test(v) ? Number(v) : null;
   };
-  const sortRaw = url.searchParams.get("sort") ?? "relevance";
+  // Without a text query there is no relevance to rank — publication
+  // date is the meaningful default, and the selector says so.
+  const sortRaw = url.searchParams.get("sort") ??
+    (url.searchParams.get("q") ? "relevance" : "year_desc");
   const sort = (["relevance", "year_desc", "year_asc", "docid"] as const).includes(sortRaw as never)
     ? (sortRaw as SearchParams["sort"])
     : "relevance";
@@ -227,9 +230,9 @@ ${scopeMeta}
       `<option value="${y}"${params.yearFrom === y ? " selected" : ""}>${y}+</option>`).join("")}
   </select>
   <select name="sort" aria-label="Sort">
+    <option value="year_desc"${params.sort === "year_desc" ? " selected" : ""}>Newest first</option>
+    <option value="year_asc"${params.sort === "year_asc" ? " selected" : ""}>Oldest first</option>
     <option value="relevance"${params.sort === "relevance" ? " selected" : ""}>Relevance</option>
-    <option value="year_desc"${params.sort === "year_desc" ? " selected" : ""}>Newest</option>
-    <option value="year_asc"${params.sort === "year_asc" ? " selected" : ""}>Oldest</option>
     <option value="docid"${params.sort === "docid" ? " selected" : ""}>Identifier</option>
   </select>
   ${hidden}

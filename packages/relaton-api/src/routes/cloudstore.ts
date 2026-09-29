@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import type { AppEnv } from "../env";
 import { renderCollections, renderEntry, wantsHtml, findEntryRow } from "./cloudstore_ui";
+import { renderNotFound } from "./ui/chrome";
 import { renderSearchPage } from "./search";
 
 // The lutaml cloud store contract (spike distilled from this API and
@@ -105,7 +106,19 @@ cloudStoreRoutes.get("/collections/:collection", async (c) => {
   const flavor = await c.env.DB.prepare(
     "SELECT flavor FROM flavors WHERE flavor = ?",
   ).bind(collection).first();
-  if (!flavor) return c.text(`unknown collection: ${collection}`, 404);
+  if (!flavor) {
+    if (wantsHtml(c.req.header("Accept"))) {
+      return c.html(renderNotFound({
+        heading: "No such collection",
+        detail: `${collection} is not one of the indexed collections.`,
+        actions: [
+          { label: "Browse the collections", href: "/collections" },
+          { label: "Search everything", href: "/search" },
+        ],
+      }), 404, { "cache-control": "no-store" });
+    }
+    return c.text(`unknown collection: ${collection}`, 404);
+  }
   const html = await renderSearchPage(c.env.DB, new URL(c.req.url), {
     scopeFlavor: collection,
     title: collection,
@@ -157,7 +170,18 @@ cloudStoreRoutes.openapi(entryRoute, async (c) => {
       c.env.DB, collection, key, false,
       (r2Key) => c.env.BUCKET.get(r2Key),
     );
-    if (!page) return c.text(`no such entry: ${key}`, 404);
+    if (!page) {
+      const bare = key.replace(/^data\//, "");
+      return c.html(renderNotFound({
+        heading: "No such record",
+        detail: `${collection} has no entry ${bare}. Records appear here when the dataset is ingested.`,
+        actions: [
+          { label: `Search for ${bare}`, href: `/search?q=${encodeURIComponent(bare)}` },
+          { label: `Browse ${collection}`, href: `/collections/${encodeURIComponent(collection)}` },
+          { label: "All collections", href: "/collections" },
+        ],
+      }), 404, { "cache-control": "no-store" });
+    }
     if ("html" in page) {
       // Record pages change only on ingest; a five-minute freshness window
       // with background revalidation keeps repeat visits instant.

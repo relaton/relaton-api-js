@@ -30,6 +30,7 @@ export interface LayoutOptions {
   body: string;
   css?: string;
   activeNav?: string;
+  head?: string;
 }
 
 const CORE_CSS = `
@@ -124,6 +125,10 @@ const CORE_CSS = `
     .nav-external { margin-left: 0; }
   }
 
+  @media print {
+    .site-header, footer, .theme-toggle, .nav-burger { display: none !important; }
+    main { padding: 0; }
+  }
   footer {
     margin-top: 48px; color: var(--muted); font-size: 13px;
     border-top: 1px solid var(--border); padding-top: 16px;
@@ -172,7 +177,7 @@ export function renderNotFound(opts: {
   });
 }
 
-export function layout({ title, body, css, activeNav }: LayoutOptions): string {
+export function layout({ title, body, css, activeNav, head }: LayoutOptions): string {
   const navLinks = NAV.map((item) => {
     const current = item.id === activeNav ? ' aria-current="page"' : "";
     return `<a class="nav-link" href="${item.href}"${current}>${escapeHtml(item.text)}</a>`;
@@ -184,6 +189,7 @@ export function layout({ title, body, css, activeNav }: LayoutOptions): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
+${head ?? ""}
 <link rel="icon" type="image/svg+xml" href="https://relaton.org/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

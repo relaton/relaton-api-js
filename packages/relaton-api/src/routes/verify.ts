@@ -176,7 +176,7 @@ export async function renderVerifyPage(code: string | undefined): Promise<string
         key: outcome.docid,
         docid: outcome.docid,
         body: toXml(outcome.item),
-      });
+      }).body;
     } else {
       head = `<p class="verify-error">${escapeHtml(outcome.error ?? "Could not resolve the identifier.")}</p>`;
     }

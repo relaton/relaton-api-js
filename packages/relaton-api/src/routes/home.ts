@@ -27,6 +27,18 @@ const CSS = `
     padding: 10px 18px; font-size: 15px; border: none; border-radius: 8px;
     background: var(--accent); color: #fff; cursor: pointer;
   }
+  .home-hero {
+    border: 1px solid var(--border); border-radius: 16px; padding: 26px 28px 24px;
+    margin: 0 0 30px; overflow: hidden;
+    background:
+      radial-gradient(120% 150% at 100% 0%, var(--accent-soft) 0%, transparent 55%),
+      linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
+  }
+  .home-hero h1 { font-size: 32px; font-weight: 800; }
+  .home-hero .tagline { max-width: 62ch; }
+  .stats { display: flex; flex-wrap: wrap; gap: 22px; margin: 16px 0 18px; }
+  .stat { display: inline-flex; align-items: baseline; gap: 7px; color: var(--muted); font-size: 13.5px; }
+  .stat b { font-size: 21px; font-weight: 800; color: var(--fg); letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip {
     display: inline-flex; align-items: center; gap: 8px; background: var(--bg-mute);
@@ -68,14 +80,16 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
     .join("");
 
   const body = `
+  <div class="home-hero">
   <h1>${escapeHtml(name)}</h1>
   <p class="tagline">Bibliographic data for technical standards, aggregated across the
   <a href="https://github.com/relaton" rel="noopener">relaton-data-*</a> repositories. Read-only, no authentication.</p>
-  <p class="stats"><b>${flavors.length} flavors</b> · <b>${total.toLocaleString("en-US")} documents</b> indexed${lastIngest ? ` · last ingest ${escapeHtml(lastIngest.slice(0, 10))}` : ""} · release ${escapeHtml(version)}</p>
-  <form class="search" method="get" action="/search" style="margin:0 0 28px">
+  <p class="stats"><span class="stat"><b>${flavors.length}</b> flavors</span><span class="stat"><b>${total.toLocaleString("en-US")}</b> documents</span>${lastIngest ? `<span class="stat"><b>${escapeHtml(lastIngest.slice(0, 10))}</b> last ingest</span>` : ""}<span class="stat"><b>${escapeHtml(version)}</b> release</span></p>
+  <form class="search" method="get" action="/search" style="margin:8px 0 0">
     <input name="q" placeholder="Search every collection — identifier or title…" aria-label="Search the database">
     <button type="submit">Search</button>
   </form>
+  </div>
 
   <h2>Endpoints</h2>
   <div class="grid">

@@ -20,6 +20,11 @@ const CSS = `
   .search-bar button { padding: 10px 18px; font: 14px var(--font); border: none; border-radius: 8px;
     background: var(--accent); color: #fff; cursor: pointer; }
   .abstract-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); }
+  .facet-card {
+    border: 1px solid var(--border); border-radius: 10px; background: var(--bg-soft);
+    padding: 10px 12px; margin-bottom: 10px;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 10px 26px -16px rgba(16, 24, 40, 0.12);
+  }
   .facets h3 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--muted); margin: 18px 0 6px; }
   .facet-link { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 13.5px;
@@ -104,7 +109,7 @@ function renderFacet(
     return `<a class="facet-link${on ? " on" : ""}" href="${on ? clearHref(params, dimension) : facetHref(params, dimension, escapeHtml(f.value))}">
       <span>${escapeHtml(f.value)}${on ? " ✕" : ""}</span><span class="n">${f.count.toLocaleString("en-US")}</span></a>`;
   }).join("");
-  return `<h3>${dimension}</h3>${links}`;
+  return `<div class="facet-card"><h3>${dimension}</h3>${links}</div>`;
 }
 
 function renderResults(r: SearchResult, collection: string | undefined): string {

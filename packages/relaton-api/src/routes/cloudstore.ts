@@ -85,7 +85,9 @@ export const cloudStoreRoutes = new OpenAPIHono<AppEnv>();
 cloudStoreRoutes.openapi(collectionsRoute, async (c) => {
   // Browsers get the browsable index; API clients keep the JSON contract.
   if (wantsHtml(c.req.header("Accept"))) {
-    return c.html(await renderCollections(c.env.DB));
+    return c.html(await renderCollections(c.env.DB), 200, {
+      "cache-control": "public, max-age=300, stale-while-revalidate=86400",
+    });
   }
 
   const { results } = await c.env.DB.prepare(
@@ -109,7 +111,9 @@ cloudStoreRoutes.get("/collections/:collection", async (c) => {
     title: collection,
     activeNav: "collections",
   });
-  return c.html(html);
+  return c.html(html, 200, {
+    "cache-control": "public, max-age=60, stale-while-revalidate=3600",
+  });
 });
 
 cloudStoreRoutes.openapi(manifestRoute, async (c) => {
@@ -154,10 +158,17 @@ cloudStoreRoutes.openapi(entryRoute, async (c) => {
       (r2Key) => c.env.BUCKET.get(r2Key),
     );
     if (!page) return c.text(`no such entry: ${key}`, 404);
-    if ("html" in page) return c.html(page.html);
+    if ("html" in page) {
+      // Record pages change only on ingest; a five-minute freshness window
+      // with background revalidation keeps repeat visits instant.
+      return c.html(page.html, 200, {
+        "cache-control": "public, max-age=300, stale-while-revalidate=86400",
+      });
+    }
     return c.text(page.body, 200, {
       "content-type": page.contentType,
       etag: `"${collection}/${key}"`,
+      "cache-control": "public, max-age=300, stale-while-revalidate=86400",
     });
   }
 

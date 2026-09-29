@@ -79,13 +79,20 @@ export function createApp(configInput: unknown = {}) {
     allowHeaders: ["Content-Type"],
   }));
 
-  app.get("/", async (c) => c.html(await renderHome(c.env.DB, c.env.API_VERSION ?? "dev", config.name)));
+  app.get("/", async (c) =>
+    c.html(await renderHome(c.env.DB, c.env.API_VERSION ?? "dev", config.name), 200, {
+      "cache-control": "public, max-age=300, stale-while-revalidate=86400",
+    }));
 
   app.get("/assets/metanorma-icon-dark-bg.svg", (c) =>
     c.body(METANORMA_ICON_DARK_BG, 200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" }));
   app.get("/assets/metanorma-icon-light-bg.svg", (c) =>
     c.body(METANORMA_ICON_LIGHT_BG, 200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" }));
-  app.get("/search", async (c) => c.html(await renderSearchPage(c.env.DB, new URL(c.req.url))));
+  app.get("/search", async (c) =>
+    c.html(await renderSearchPage(c.env.DB, new URL(c.req.url)), 200, {
+      // Search is query-dependent; a one-minute window absorbs paging clicks.
+      "cache-control": "public, max-age=60, stale-while-revalidate=3600",
+    }));
   app.get("/verify", async (c) => c.html(await renderVerifyPage(c.req.query("code"))));
   app.get("/ai", (c) => c.html(renderAiPage()));
   app.get("/llms.txt", (c) => c.text(LLMS_TXT, 200, { "Content-Type": "text/plain; charset=utf-8" }));

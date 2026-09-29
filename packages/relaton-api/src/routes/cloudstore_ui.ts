@@ -41,7 +41,7 @@ const CSS = `
   table { width: 100%; border-collapse: collapse; font-size: 15px; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-size: 13px; font-weight: 600; }
-  td a { color: var(--accent); text-decoration: none; font-family: var(--mono); font-size: 14px; }
+  td a { color: var(--accent); text-decoration: none; font-size: 15px; font-weight: 600; letter-spacing: 0.01em; }
   td a:hover { text-decoration: underline; }
   .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
   .coll-cell { display: inline-flex; align-items: center; gap: 10px; }

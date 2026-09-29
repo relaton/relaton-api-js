@@ -61,7 +61,7 @@ ${rowsHtml}
 // Each publisher speaks its own status vocabulary (ISO stage codes, RFC
 // states, BSI current/withdrawn, ...). Codes known to be opaque get a
 // reader-friendly form; every other value renders verbatim.
-const STATUS_WORDS: Record<string, string> = {
+export const STATUS_WORDS: Record<string, string> = {
   "60.60": "Published", "60.00": "Published", "50.00": "Final draft",
   "50.20": "Final draft", "40.00": "Draft", "40.20": "Draft",
   "90.92": "Withdrawn", "90.93": "Withdrawn", "95.99": "Withdrawn",
@@ -524,13 +524,6 @@ export const RECORD_CSS = `
   .chip-type { color: var(--accent); border-color: var(--accent-soft); }
   .chip-status { color: var(--aqua); border-color: rgba(0,138,100,0.3); }
   .ov-docids { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
-  .docid-badge {
-    display: inline-flex; align-items: baseline; gap: 6px; font-family: var(--mono); font-size: 14px;
-    background: var(--accent-soft); color: var(--accent); border-radius: 6px; padding: 4px 10px;
-  }
-  .docid-badge.primary { outline: 1px solid var(--accent-soft); }
-  .docid-badge a { color: inherit; }
-  .docid-badge small { color: var(--muted); font-size: 11px; }
   .record-head { margin: 4px 0 20px; display: flex; gap: 18px; align-items: flex-start; }
   .publisher-mark {
     flex: none; width: 56px; height: 56px; border: 1px solid var(--border); border-radius: 12px;

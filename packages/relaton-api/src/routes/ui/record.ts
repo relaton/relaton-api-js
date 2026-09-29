@@ -314,9 +314,19 @@ function renderOverview(record: Record<string, unknown>): string {
     };
     const rawType = typeof obj.type === "string" ? obj.type : "";
     const typeAttr = rawType
-      ? (RELATION_LABELS[rawType] ??
+      ? escapeHtml(RELATION_LABELS[rawType] ??
         rawType.replace(/[-_](.)/g, (_, c) => ` ${c.toUpperCase()}`).replace(/^./, (c) => c.toUpperCase()))
       : "Related";
+    // Relations are a graph: this record either acts on another (→) or is
+    // acted on by it (←).
+    const PASSIVE = new Set([
+      "obsoletedBy", "supersededBy", "updatedBy", "amendedBy", "correctedBy", "replacedBy",
+      "isCitedIn", "isDescribedIn", "partOf", "includedIn", "adaptedFrom", "adoptedFrom",
+      "successorOf", "complementOf", "instanceOf", "manifestationOf", "excerptOf",
+    ]);
+    const arrow = PASSIVE.has(rawType)
+      ? `<span class="rel-arrow back" aria-hidden="true">←</span>`
+      : `<span class="rel-arrow" aria-hidden="true">→</span>`;
     const bibitem = obj.bibitem as Record<string, unknown> | undefined;
     const relatedDocid = asArray(bibitem?.docidentifier as unknown[])
       .map((d) => contentOf(typeof d === "object" && d !== null ? (d as Record<string, unknown>).content : d))
@@ -327,7 +337,7 @@ function renderOverview(record: Record<string, unknown>): string {
     const target = relatedDocid
       ? `<a href="/search?q=${encodeURIComponent(relatedDocid)}" title="Open this document">${escapeHtml(ref)} ↗</a>`
       : escapeHtml(ref);
-    return `<div class="ov-row"><span class="ov-key">${typeAttr}</span><span>${target}</span></div>`;
+    return `<div class="ov-row"><span class="ov-key">${typeAttr}</span><span>${arrow}${target}</span></div>`;
   }).join("");
 
   const series = asArray(record.series as unknown[]).map((s) => {
@@ -520,19 +530,32 @@ document.querySelectorAll('[data-copy-text]').forEach(function (btn) {
 
 export const RECORD_CSS = `
   .ov-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
-  .ov-chips .chip { background: var(--bg-mute); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 12.5px; color: var(--fg-2); }
+  .ov-chips .chip {
+    background: var(--accent-soft); border: 1px solid transparent; border-radius: 999px;
+    padding: 2px 10px; font-size: 12.5px; color: var(--accent);
+  }
   .chip-type { color: var(--accent); border-color: var(--accent-soft); }
   .chip-status { color: var(--aqua); border-color: rgba(0,138,100,0.3); }
   .ov-docids { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
-  .record-head { margin: 4px 0 20px; display: flex; gap: 18px; align-items: flex-start; }
-  .publisher-mark {
-    flex: none; width: 56px; height: 56px; border: 1px solid var(--border); border-radius: 12px;
-    background: #fff; display: flex; align-items: center; justify-content: center; margin-top: 14px;
-    text-decoration: none; overflow: hidden;
-    transition: border-color 0.12s;
+  .record-head {
+    margin: 4px 0 22px; display: flex; gap: 20px; align-items: flex-start;
+    position: relative; border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px 22px 18px; overflow: hidden;
+    background:
+      radial-gradient(120% 150% at 100% 0%, var(--accent-soft) 0%, transparent 55%),
+      linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
   }
+  .publisher-mark {
+    flex: none; width: 64px; height: 64px; border: 1px solid var(--border); border-radius: 14px;
+    background: #fff; display: flex; align-items: center; justify-content: center; margin-top: 6px;
+    text-decoration: none; overflow: hidden;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 6px 16px -8px rgba(16, 24, 40, 0.12);
+    transition: border-color 0.12s, transform 0.12s;
+  }
+  .publisher-mark:hover { transform: translateY(-1px); }
+  @media (prefers-reduced-motion: reduce) { .publisher-mark:hover { transform: none; } }
   .publisher-mark:hover { border-color: var(--accent); }
-  .publisher-mark img { max-width: 40px; max-height: 40px; object-fit: contain; }
+  .publisher-mark img { max-width: 46px; max-height: 46px; object-fit: contain; }
   .record-head-main { min-width: 0; }
   @media (max-width: 600px) { .record-head { flex-direction: column-reverse; gap: 10px; } .publisher-mark { margin-top: 0; align-self: flex-end; width: 48px; height: 48px; } .publisher-mark img { max-width: 34px; max-height: 34px; } }
   .record-eyebrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 2px; }
@@ -589,12 +612,27 @@ export const RECORD_CSS = `
     font-size: 13px; color: var(--fg-2); border-left: 2px solid var(--border);
     padding-left: 12px; margin-top: -2px;
   }
-  .series-link { font-size: 12.5px; }
+  .series-link {
+    display: inline-block; margin-top: 10px; font-size: 13px; font-weight: 600;
+    padding: 5px 13px; border: 1px solid var(--accent-soft); border-radius: 999px;
+    color: var(--accent); text-decoration: none; background: var(--bg);
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .series-link:hover { border-color: var(--accent); background: var(--accent-soft); }
+  .rel-arrow { color: var(--accent); margin-right: 7px; }
+  .rel-arrow.back { color: var(--muted); }
   .record-tools { display: flex; flex-direction: column; gap: 14px; }
   .tool-card {
     border: 1px solid var(--border); border-radius: 12px; background: var(--bg-soft);
     padding: 14px 16px; margin: 0;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 32px -16px rgba(16, 24, 40, 0.14);
+    transition: box-shadow 0.15s, transform 0.15s;
   }
+  .tool-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.05), 0 16px 40px -16px rgba(16, 24, 40, 0.18);
+  }
+  @media (prefers-reduced-motion: reduce) { .tool-card { transition: none; } .tool-card:hover { transform: none; } }
   .tool-card h3 {
     font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
     color: var(--muted); margin: 0 0 10px;

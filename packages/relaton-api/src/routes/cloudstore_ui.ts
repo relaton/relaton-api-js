@@ -148,12 +148,14 @@ export async function renderEntry(
   }
 
   const docid = row.docid ?? key;
+  const page = renderRecordPage({ collection, key, docid, body });
   return {
     html: layout({
       title: `${docid} — Relaton API`,
       activeNav: "collections",
       css: CSS + RECORD_CSS,
-      body: renderRecordPage({ collection, key, docid, body }),
+      head: page.head,
+      body: page.body,
     }),
   };
 }

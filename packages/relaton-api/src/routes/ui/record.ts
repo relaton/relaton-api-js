@@ -95,6 +95,37 @@ const ID_TYPE_LABELS: Record<string, string> = {
  * every language equal, none a translation. Monospace never appears here;
  * it belongs to copy targets only.
  */
+/** The record's call number and primary-language title — shared by the
+ * page header and the meta tags, so previews always match the page. */
+function recordHeading(record: Record<string, unknown>): { docid: string; title: string } {
+  const docids = asArray(record.docidentifier as unknown[]);
+  const pick = docids.find((d) =>
+    typeof d === "object" && d !== null && (d as Record<string, unknown>).primary === true);
+  const first = (pick ?? docids[0]) as Record<string, unknown> | undefined;
+  const docid = first ? (contentOf(first) || (typeof first === "string" ? first : "")) : "";
+
+  type TitleSlots = { intro: string; main: string; part: string; composite: string };
+  const byLang = new Map<string, TitleSlots>();
+  for (const item of asArray(record.title as unknown[])) {
+    const obj = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
+    const text = contentOf(item);
+    if (!text) continue;
+    const lang = typeof obj.language === "string" ? obj.language.toLowerCase() : "";
+    const slot = byLang.get(lang) ?? { intro: "", main: "", part: "", composite: "" };
+    if (obj.type === "title-intro") slot.intro ||= text;
+    else if (obj.type === "title-part") slot.part ||= text;
+    else if (obj.type === "main") slot.composite ||= text;
+    else slot.main ||= text;
+    byLang.set(lang, slot);
+  }
+  const compose = (s: TitleSlots): string =>
+    [s.intro, s.main].filter(Boolean).join(" — ") || s.composite;
+  const langs = [...byLang.keys()];
+  const headingLang = langs.includes("en") ? "en" : langs[0] ?? "";
+  const title = byLang.has(headingLang) ? compose(byLang.get(headingLang)!) : "";
+  return { docid, title };
+}
+
 function renderRecordHead(record: Record<string, unknown>, familyQuery: string, collection: string): string {
   const type = typeof record.type === "string" ? record.type : "";
   const typeLabel = type ? type.replace(/(^|[\s_-])(\p{L})/gu, (m, s, c) => s + c.toUpperCase()) : "";
@@ -112,13 +143,7 @@ function renderRecordHead(record: Record<string, unknown>, familyQuery: string, 
     : "";
   const typeChip = typeLabel ? `<span class="type-chip">${escapeHtml(typeLabel)}</span>` : "";
 
-  const docids = asArray(record.docidentifier as unknown[]);
-  const headingDocid = (() => {
-    const pick = docids.find((d) =>
-      typeof d === "object" && d !== null && (d as Record<string, unknown>).primary === true);
-    const first = (pick ?? docids[0]) as Record<string, unknown> | undefined;
-    return first ? (contentOf(first) || (typeof first === "string" ? first : "")) : "";
-  })();
+  const { docid: headingDocid, title: headingTitle } = recordHeading(record);
 
   type TitleSlots = { intro: string; main: string; part: string; composite: string };
   const titlesByLang = new Map<string, TitleSlots>();
@@ -140,7 +165,6 @@ function renderRecordHead(record: Record<string, unknown>, familyQuery: string, 
   };
   const langs = [...titlesByLang.keys()];
   const headingLang = langs.includes("en") ? "en" : langs[0] ?? "";
-  const headingTitle = titlesByLang.has(headingLang) ? composedOf(titlesByLang.get(headingLang)!) : "";
   const otherTitleRows = langs
     .filter((l) => l !== headingLang)
     .map((l) => {
@@ -411,7 +435,7 @@ export interface RecordPageInput {
   body: string;
 }
 
-export function renderRecordPage({ collection, key, docid, body }: RecordPageInput): string {
+export function renderRecordPage({ collection, key, docid, body }: RecordPageInput): { body: string; head: string } {
   const isXml = body.trimStart().startsWith("<");
   const parsed = isXml ? fromXml(body) : null;
   const item = parsed?.ok ? parsed.item : null;
@@ -494,7 +518,38 @@ ${asciibib ? `
   if (ris) addTab("ris", "RIS", escapeHtml(ris), ris);
   if (csl) addTab("csl", "CSL-JSON", escapeHtml(csl), csl);
 
-  return `
+  // Link previews, structured citations, and print — the surfaces a
+  // record meets outside the browser window.
+  const { docid: metaDocid, title: metaTitleText } = record ? recordHeading(record) : { docid: "", title: "" };
+  const metaTitle = `${metaDocid || docid}${metaTitleText ? ` — ${metaTitleText}` : ""}`;
+  const metaDescription = `${docid}${metaTitleText ? ` — ${metaTitleText}` : ""}. Relaton bibliographic record, ${collection} collection.`;
+  const canonical = `https://api.relaton.org/collections/${encodeURIComponent(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}`;
+  const metaLogo = /^[a-z0-9-]+$/.test(collection)
+    ? `https://www.relaton.org/logos/${collection}-logo.svg`
+    : "";
+  const metaYear = record?.date
+    ? (JSON.stringify(record.date).match(/\d{4}/)?.[0] ?? "")
+    : "";
+  const ldJson = {
+    "@context": "https://schema.org",
+    "@type": "CreativeWork",
+    name: metaTitleText || docid,
+    identifier: metaDocid || docid,
+    url: canonical,
+    ...(metaYear ? { datePublished: metaYear } : {}),
+    ...(metaLogo ? { publisher: { "@type": "Organization", name: collection.toUpperCase(), logo: metaLogo } } : {}),
+  };
+  const recordHead = `
+<meta name="description" content="${escapeHtml(metaDescription)}">
+<link rel="canonical" href="${canonical}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${escapeHtml(metaTitle)}">
+<meta property="og:description" content="${escapeHtml(metaDescription)}">
+<meta property="og:url" content="${canonical}">
+${metaLogo ? `<meta property="og:image" content="${metaLogo}">` : ""}
+<script type="application/ld+json">${JSON.stringify(ldJson).replace(/</g, "\\u003c")}</script>`;
+
+  const pageBody = `
 <p class="meta">${escapeHtml(collection)} collection ·
 <a href="${entryPath}?raw=1">raw bytes</a> ·
 <a href="/api/v1/document?code=${encodeURIComponent(docid)}" title="/api/v1/document?code=${encodeURIComponent(docid)}">API</a> ·
@@ -540,6 +595,7 @@ document.querySelectorAll('[data-copy-text]').forEach(function (btn) {
   });
 });
 </script>`;
+  return { body: pageBody, head: recordHead };
 }
 
 export const RECORD_CSS = `
@@ -710,6 +766,12 @@ export const RECORD_CSS = `
   .tok-com { color: var(--muted); font-style: italic; }
   .tok-key { color: var(--accent); }
   .tok-val { color: inherit; }
+  @media print {
+    .record-body { grid-template-columns: 1fr; }
+    .record-tools, .machine-forms, .meta, .cite-style-row .copy-btn, .icon-btn, .dl-link { display: none !important; }
+    .record-head { border: 1px solid var(--border); background: none; }
+    .ov-section { break-inside: avoid; }
+  }
   .machine-forms { margin-top: 30px; border-top: 1px solid var(--border); padding-top: 20px; }
   .machine-forms h2 { font-size: 15px; font-weight: 700; margin: 0 0 2px; letter-spacing: -0.01em; }
   .machine-hint { color: var(--muted); font-size: 13px; margin: 0 0 12px; }

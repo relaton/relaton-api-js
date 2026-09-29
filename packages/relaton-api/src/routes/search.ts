@@ -1,5 +1,6 @@
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
+import { STATUS_WORDS } from "./ui/record";
 import { searchDocuments, type SearchParams, type SearchResult } from "../lib/search";
 
 // Global pubid/keyword search across every flavor, with facets, sorting,
@@ -29,11 +30,17 @@ const CSS = `
   .results-info { color: var(--muted); font-size: 13px; margin: 0 0 10px; }
   .result { border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 10px; }
   .result-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
-  .result-docid { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--accent); text-decoration: none; }
+  .result-docid { font-size: 15.5px; font-weight: 650; color: var(--accent); text-decoration: none; letter-spacing: 0.01em; }
   .result-docid:hover { text-decoration: underline; }
   .result-chip { background: var(--bg-mute); border: 1px solid var(--border); border-radius: 999px;
     padding: 1px 9px; font-size: 11.5px; color: var(--fg-2); }
-  .result-title { margin: 5px 0 0; font-size: 14px; color: var(--fg-2); }
+  .result-chip.flavor { color: var(--accent); border-color: var(--accent-soft); }
+  .result-title { margin: 5px 0 0; font-size: 14.5px; color: var(--fg-2); line-height: 1.45; }
+  .result-logo {
+    width: 22px; height: 22px; object-fit: contain; background: #fff; border-radius: 5px;
+    padding: 1px; flex: none; align-self: center; margin-right: 2px;
+  }
+  .result-head { align-items: center; }
   .pager { display: flex; gap: 8px; margin-top: 16px; align-items: center; }
   .pager a, .pager span { padding: 8px 14px; font-size: 13px; border: 1px solid var(--border);
     border-radius: 8px; text-decoration: none; color: var(--fg); background: var(--bg); }
@@ -107,14 +114,18 @@ function renderResults(r: SearchResult, collection: string | undefined): string 
   return r.items.map((d) => {
     const key = d.r2_key.slice(d.flavor.length + 1);
     const href = `/collections/${escapeHtml(d.flavor)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}`;
+    // Status vocabularies are publisher-specific; translate the opaque
+    // codes, pass everything else through verbatim.
+    const statusWord = d.status ? (STATUS_WORDS[d.status] ?? d.status) : "";
     const chips = [
-      `<span class="result-chip">${escapeHtml(d.flavor)}</span>`,
+      `<span class="result-chip flavor">${escapeHtml(d.flavor)}</span>`,
       d.doctype ? `<span class="result-chip">${escapeHtml(d.doctype)}</span>` : "",
-      d.year ? `<span class="result-chip">${d.year}</span>` : "",
-      d.status ? `<span class="result-chip">${escapeHtml(d.status)}</span>` : "",
+      statusWord ? `<span class="result-chip">${escapeHtml(statusWord)}</span>` : "",
+      d.year ? `<span class="result-chip">${escapeHtml(String(d.year))}</span>` : "",
     ].filter(Boolean).join("");
     return `<div class="result">
       <div class="result-head">
+        ${/^[a-z0-9-]+$/.test(d.flavor) ? `<img class="result-logo" src="https://www.relaton.org/logos/${d.flavor}-logo.${new Set(["omg", "cenelec"]).has(d.flavor) ? "png" : "svg"}" alt="" loading="lazy" onerror="this.remove()">` : ""}
         <a class="result-docid" href="${href}">${escapeHtml(d.docid ?? key)}</a>
         ${chips}
       </div>

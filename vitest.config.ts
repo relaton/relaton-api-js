@@ -4,7 +4,10 @@ import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" },
+            // Tests never exercise AI or Vectorize; the real config's AI
+      // binding forces a credentialed remote proxy session that CI
+      // cannot provide, so tests boot from a trimmed copy.
+      wrangler: { configPath: "./wrangler.test.jsonc" },
     }),
   ],
   test: {

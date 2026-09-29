@@ -1,8 +1,11 @@
+import { fuseRankings } from "./semantic";
+
 // Shared search engine for /search, /collections/{c}, and /api/v1/search:
 // one WHERE-builder over the documents index with pubid-aware matching,
 // filters, sorting, pagination, and per-dimension facet counts.
 
 export interface SearchParams {
+  semantic?: boolean;
   q?: string;
   /** Also match the query against record abstracts (LIKE-based). */
   inAbstract?: boolean;
@@ -17,6 +20,7 @@ export interface SearchParams {
 }
 
 export interface SearchHit {
+  id: number;
   flavor: string;
   r2_key: string;
   docid: string | null;
@@ -151,6 +155,53 @@ async function facetFor(
   return (results ?? []).map((r) => ({ value: r.value, count: r.count }));
 }
 
+
+/**
+ * Hybrid search: keyword results fused with semantic neighbours by
+ * reciprocal-rank fusion on the first page. Deeper pages fall back to
+ * keyword ordering — the fused pool is intentionally small.
+ */
+export async function hybridSearch(
+  db: D1Database,
+  env: { AI: Ai; VECTORIZE: VectorizeIndex } | undefined,
+  params: SearchParams,
+  opts: { scopeFlavor?: string } = {},
+): Promise<SearchResult> {
+  const result = await searchDocuments(db, params, opts);
+  const size = Math.min(100, Math.max(10, params.size ?? 25));
+  if (!env || !params.q || !params.semantic || (params.page ?? 0) > 0 || result.items.length === 0) {
+    return result;
+  }
+  const { semanticSearch } = await import("./semantic");
+  const hits = await semanticSearch(env, params.q, 50);
+  if (!hits.length) return result;
+
+  const ids = hits.map((h) => h.id);
+  const { where, bind } = buildWhere(
+    {
+      flavor: params.flavor,
+      doctype: params.doctype,
+      status: params.status,
+      yearFrom: params.yearFrom,
+      yearTo: params.yearTo,
+    },
+    opts,
+  );
+  const placeholders = ids.map(() => "?").join(",");
+  const { results } = await db.prepare(
+    `SELECT id, flavor, r2_key, docid, year, doctype, status, title_en, norm
+     FROM documents WHERE id IN (${placeholders})${where ? ` AND ${where.replace(/^WHERE /, "")}` : ""}`,
+  ).bind(...ids, ...bind).all<SearchHit>();
+
+  const byId = new Map((results ?? []).map((r) => [r.id, r]));
+  const secondary = hits.flatMap((h) => {
+    const row = byId.get(h.id);
+    return row && !result.items.some((i) => i.id === row.id) ? [row] : [];
+  });
+  result.items = fuseRankings(result.items, secondary).slice(0, size);
+  return result;
+}
+
 export async function searchDocuments(
   db: D1Database,
   params: SearchParams,
@@ -189,7 +240,7 @@ export async function searchDocuments(
   }
 
   const { results } = await db.prepare(
-    `SELECT flavor, r2_key, docid, year, doctype, status, title_en, norm
+    `SELECT id, flavor, r2_key, docid, year, doctype, status, title_en, norm
      FROM documents ${where} ORDER BY ${order} LIMIT ${size + 1} OFFSET ${page * size}`,
   ).bind(...bind, ...orderBind).all<SearchHit>();
 

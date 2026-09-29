@@ -23,6 +23,15 @@
       "bucket_name": "relaton-api-data"
     }
   ],
+  "ai": {
+    "binding": "AI"
+  },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "relaton-records"
+    }
+  ],
   "triggers": {
     "crons": ["0 */6 * * *"]
   }

@@ -119,7 +119,7 @@ cloudStoreRoutes.get("/collections/:collection", async (c) => {
     }
     return c.text(`unknown collection: ${collection}`, 404);
   }
-  const html = await renderSearchPage(c.env.DB, new URL(c.req.url), {
+  const html = await renderSearchPage(c.env, c.env.DB, new URL(c.req.url), {
     scopeFlavor: collection,
     title: collection,
     activeNav: "collections",

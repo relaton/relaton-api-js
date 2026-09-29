@@ -89,7 +89,7 @@ export function createApp(configInput: unknown = {}) {
   app.get("/assets/metanorma-icon-light-bg.svg", (c) =>
     c.body(METANORMA_ICON_LIGHT_BG, 200, { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" }));
   app.get("/search", async (c) =>
-    c.html(await renderSearchPage(c.env.DB, new URL(c.req.url)), 200, {
+    c.html(await renderSearchPage(c.env, c.env.DB, new URL(c.req.url)), 200, {
       // Search is query-dependent; a one-minute window absorbs paging clicks.
       "cache-control": "public, max-age=60, stale-while-revalidate=3600",
     }));

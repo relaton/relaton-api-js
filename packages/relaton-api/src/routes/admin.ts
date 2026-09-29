@@ -169,6 +169,52 @@ adminRoutes.post("/admin/populate-fts", async (c) => {
   });
 });
 
+adminRoutes.post("/admin/embed-records", async (c) => {
+  if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
+    return c.text("Forbidden.", 403);
+  }
+  const limit = Math.min(200, Number(c.req.query("limit") ?? "100") || 100);
+  const cursor = Number(c.req.query("cursor") ?? "0") || 0;
+
+  // Only rows with embeddable text; id order keeps the walk resumable.
+  const { results } = await c.env.DB.prepare(
+    `SELECT id, docid, title_en, abstract FROM documents
+     WHERE id > ?1 AND (title_en IS NOT NULL OR abstract IS NOT NULL)
+     ORDER BY id LIMIT ?2`,
+  ).bind(cursor, limit).all<{ id: number; docid: string | null; title_en: string | null; abstract: string | null }>();
+
+  const rows = results ?? [];
+  if (!rows.length) return c.json({ embedded: 0, lastId: cursor, nextCursor: null });
+
+  // Vectors carry the document id in metadata so matches map straight
+  // back to D1 without a lookup.
+  const { recordText, embedTexts } = await import("../lib/semantic");
+  // The AI binding accepts up to 100 texts per call; batch to stay well
+  // inside that while upserting everything the page selected.
+  for (let i = 0; i < rows.length; i += 50) {
+    const batch = rows.slice(i, i + 50);
+    const embeddings = await embedTexts(c.env, batch.map((r) => recordText(r.docid, r.title_en, r.abstract)));
+    if (embeddings.length !== batch.length) {
+      return c.json({ error: "embedding count mismatch", expected: batch.length, got: embeddings.length }, 502);
+    }
+    const upserts = batch.flatMap((row, j) => {
+      const values = embeddings[j];
+      return values ? [{
+        id: `doc-${row.id}`,
+        values,
+        metadata: { documentId: row.id },
+      }] : [];
+    });
+    await c.env.VECTORIZE.upsert(upserts);
+  }
+
+  const lastId = rows.at(-1)?.id ?? cursor;
+  return c.json({
+    embedded: rows.length, lastId,
+    nextCursor: rows.length === limit ? lastId : null,
+  });
+});
+
 adminRoutes.post("/admin/ingest/:flavor", async (c) => {
   if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
     return c.text("Forbidden.", 403);

@@ -3,6 +3,7 @@
 // lib/bibdata) with field labels linking to the model documentation on
 // relaton.org so users learn what each field means in place.
 
+import { logoUrl } from "../../lib/publishers";
 import { escapeHtml } from "./chrome";
 import { fromXml, toXml, toAsciiBib, slugAnchor, toYaml, toIso690, toChicago, toApa, toBibtex, toRis, toCslJson } from "relaton";
 import { highlightXml, highlightYaml } from "../../lib/highlight";
@@ -174,10 +175,11 @@ function renderRecordHead(record: Record<string, unknown>, familyQuery: string, 
     })
     .join("");
 
-  // The publisher's mark belongs on the card, like a letterhead.
-  const PNG_LOGOS = new Set(["omg", "cenelec"]);
-  const publisherMark = /^[a-z0-9-]+$/.test(collection)
-    ? `<a class="publisher-mark" href="/collections/${encodeURIComponent(collection)}" title="${escapeHtml(collection)} collection"><img src="https://www.relaton.org/logos/${collection}-logo.${PNG_LOGOS.has(collection) ? "png" : "svg"}" alt="${escapeHtml(collection)}" loading="lazy" onerror="this.parentElement.remove()"></a>`
+  // The publisher's mark belongs on the card, like a letterhead; the
+  // logo resolves through the publisher mapping (itu-r shares ITU's).
+  const markSrc = logoUrl(collection);
+  const publisherMark = markSrc
+    ? `<a class="publisher-mark" href="/collections/${encodeURIComponent(collection)}" title="${escapeHtml(collection)} collection"><img src="${markSrc}" alt="${escapeHtml(collection)}" loading="lazy" onerror="this.parentElement.remove()"></a>`
     : "";
 
   return `

@@ -1,3 +1,4 @@
+import { logoUrl } from "../lib/publishers";
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
 
@@ -72,8 +73,9 @@ export async function renderHome(db: D1Database, version: string, name = "Relato
   const chips = flavors
     .map((f) => {
       if (f.doc_count <= 0) return "";
-      const logo = /^[a-z0-9-]+$/.test(f.flavor)
-        ? `<img class="chip-logo" src="https://www.relaton.org/logos/${f.flavor}-logo.${PNG_LOGOS.has(f.flavor) ? "png" : "svg"}" alt="" loading="lazy" onerror="this.remove()">`
+      const src = logoUrl(f.flavor);
+      const logo = src
+        ? `<img class="chip-logo" src="${src}" alt="" loading="lazy" onerror="this.remove()">`
         : "";
       return `<a class="chip" href="/collections/${encodeURIComponent(f.flavor)}">${logo}<span class="chip-name">${escapeHtml(f.flavor)}</span><span class="chip-count">${f.doc_count.toLocaleString("en-US")}</span></a>`;
     })

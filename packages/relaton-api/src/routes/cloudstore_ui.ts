@@ -1,3 +1,4 @@
+import { logoUrl, publisherOf } from "../lib/publishers";
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
 import { renderRecordPage, RECORD_CSS } from "./ui/record";
@@ -21,12 +22,8 @@ interface EntryRow {
 
 // Publisher logos come from relaton.org's per-flavor set
 // (https://www.relaton.org — public/logos). A few flavors ship as PNG.
-const PNG_LOGOS = new Set(["omg", "cenelec"]);
-
 function logoSrc(flavor: string): string | null {
-  if (!/^[a-z0-9-]+$/.test(flavor)) return null;
-  const ext = PNG_LOGOS.has(flavor) ? "png" : "svg";
-  return `https://www.relaton.org/logos/${flavor}-logo.${ext}`;
+  return logoUrl(flavor);
 }
 
 function logoImg(flavor: string): string {
@@ -83,7 +80,10 @@ export async function renderCollections(db: D1Database): Promise<string> {
   const rows = (results ?? [])
     .map((f) => {
       const updated = f.last_modified ?? "";
+      const publisher = publisherOf(f.flavor);
+      const publisherCell = publisher.name !== f.flavor ? escapeHtml(publisher.name) : "";
       return `<tr><td><span class="coll-cell">${logoImg(f.flavor)}<a href="/collections/${escapeHtml(f.flavor)}">${escapeHtml(f.flavor)}</a></span></td>` +
+        `<td>${publisherCell}</td>` +
         `<td class="num">${f.doc_count.toLocaleString("en-US")}</td>` +
         `<td class="num">${escapeHtml(updated.slice(0, 10))}</td></tr>`;
     })
@@ -98,7 +98,7 @@ export async function renderCollections(db: D1Database): Promise<string> {
 each is a lutaml data repository: <code>manifest</code> lists its records,
 <code>entries/{key}</code> serves one.</p>
 <table>
-<thead><tr><th>Collection</th><th class="num">Records</th><th class="num">Updated</th></tr></thead>
+<thead><tr><th>Collection</th><th>Publisher</th><th class="num">Records</th><th class="num">Updated</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>

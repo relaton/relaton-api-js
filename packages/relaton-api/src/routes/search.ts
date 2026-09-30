@@ -1,3 +1,4 @@
+import { logoUrl } from "../lib/publishers";
 import type { AppEnv } from "../env";
 import { layout, escapeHtml } from "./ui/chrome";
 import { STATUS_WORDS } from "./ui/record";
@@ -162,7 +163,7 @@ function renderResults(r: SearchResult, collection: string | undefined, query: s
     ].filter(Boolean).join("");
     return `<div class="result">
       <div class="result-head">
-        ${/^[a-z0-9-]+$/.test(d.flavor) ? `<img class="result-logo" src="https://www.relaton.org/logos/${d.flavor}-logo.${new Set(["omg", "cenelec"]).has(d.flavor) ? "png" : "svg"}" alt="" loading="lazy" onerror="this.remove()">` : ""}
+        ${logoUrl(d.flavor) ? `<img class="result-logo" src="${logoUrl(d.flavor)}" alt="" loading="lazy" onerror="this.remove()">` : ""}
         <a class="result-docid" href="${href}">${escapeHtml(d.docid ?? key)}</a>
         ${chips}
       </div>
@@ -207,7 +208,7 @@ export async function renderSearchPage(
 
   const hidden = opts.scopeFlavor ? `<input type="hidden" name="flavor" value="${escapeHtml(opts.scopeFlavor)}">` : "";
   const logoSrc = opts.scopeFlavor && /^[a-z0-9-]+$/.test(opts.scopeFlavor)
-    ? `https://www.relaton.org/logos/${opts.scopeFlavor}${["omg", "cenelec"].includes(opts.scopeFlavor) ? "-logo.png" : "-logo.svg"}`
+    ? logoUrl(opts.scopeFlavor)
     : null;
   const scopeMeta = opts.scopeFlavor
     ? `<p class="meta"><a href="/collections/${escapeHtml(opts.scopeFlavor)}/manifest">manifest.json</a> ·

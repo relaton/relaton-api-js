@@ -109,6 +109,7 @@ cloudStoreRoutes.get("/collections/:collection/entries/:key/export.:format", asy
     bib: { ext: "bib", type: "application/x-bibtex" },
     ris: { ext: "ris", type: "application/x-research-info-systems" },
     "csl.json": { ext: "csl.json", type: "application/json" },
+    jsonld: { ext: "jsonld", type: "application/ld+json" },
   };
   const spec = FORMATS[format];
   if (!spec) return c.text(`unknown export format: ${format}`, 404);
@@ -119,13 +120,14 @@ cloudStoreRoutes.get("/collections/:collection/entries/:key/export.:format", asy
   if (!obj) return c.text(`no such entry: ${key}`, 404);
   const body = await obj.text();
 
-  const { fromXml, toBibtex, toRis, toCslJson } = await import("relaton");
+  const { fromXml, toBibtex, toRis, toCslJson, toJsonLd } = await import("relaton");
   const parsed = fromXml(body);
   if (!parsed.ok) return c.text("record could not be parsed for export", 502);
   const slug = row.docid?.replace(/[^A-Za-z0-9]+/g, "") || "relaton";
 
   const content = format === "bib" ? toBibtex(parsed.item)
     : format === "ris" ? toRis(parsed.item)
+    : format === "jsonld" ? toJsonLd(parsed.item)
     : toCslJson(parsed.item);
   return c.text(content, 200, {
     "content-type": spec.type + "; charset=utf-8",

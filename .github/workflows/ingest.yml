@@ -86,6 +86,28 @@ jobs:
           ADMIN_TOKEN: ${{ secrets.CLOUDFLARE_ADMIN_TOKEN }}
         run: tools/post_chunks.sh tools/out/${{ matrix.flavor }} https://api.relaton.org "$ADMIN_TOKEN"
 
+  # The weekly sweep is the only event that re-stamps every flavor in one
+  # run, so it is the only safe reconcile trigger: rows the run did not
+  # touch are ghosts (renamed/churned documents). A failed leg skips the
+  # reconcile — deleting that leg's window would be worse than keeping its
+  # ghosts for a week.
+  reconcile:
+    if: github.event_name == 'schedule' && needs.ingest.result == 'success'
+    needs: [matrix, ingest]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconcile flavors
+        env:
+          ADMIN_TOKEN: ${{ secrets.CLOUDFLARE_ADMIN_TOKEN }}
+        run: |
+          for f in $(echo '${{ needs.matrix.outputs.flavors }}' | jq -r '.[]'); do
+            echo "reconciling $f (before ${{ github.run_started_at }})"
+            curl -sf -X POST "https://api.relaton.org/admin/reconcile/$f" \
+              -H "Authorization: Bearer $ADMIN_TOKEN" \
+              -H "content-type: application/json" \
+              -d "{\"before\": \"${{ github.run_started_at }}\"}" | jq -c .
+          done
+
   # One relaton-data-* slice, dispatched by that dataset's own push workflow.
   ingest-dispatch:
     if: github.event_name == 'repository_dispatch'

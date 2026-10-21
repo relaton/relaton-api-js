@@ -232,27 +232,29 @@ adminRoutes.post("/admin/ingest/:flavor", async (c) => {
   if (chunk.flavor !== flavor) return c.text("Flavor mismatch.", 400);
 
   const stmts: D1PreparedStatement[] = [];
+  const ingestedAt = new Date().toISOString();
   for (const row of chunk.rows) {
     stmts.push(
       c.env.DB.prepare(
         `INSERT INTO documents
            (flavor, file_path, kind, r2_key, docid, norm, undated_norm, allparts_norm,
             year, published, title_en, doctype, status, abstract,
-            publisher, number, part, edition)
+            publisher, number, part, edition, ingested_at)
          VALUES (?1, ?2, 'document', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                 ?14, ?15, ?16, ?17)
+                 ?14, ?15, ?16, ?17, ?18)
          ON CONFLICT (flavor, file_path, kind) DO UPDATE SET
            r2_key = excluded.r2_key, docid = excluded.docid, norm = excluded.norm,
            undated_norm = excluded.undated_norm, allparts_norm = excluded.allparts_norm,
            year = excluded.year, published = excluded.published, title_en = excluded.title_en,
            doctype = excluded.doctype, status = excluded.status, abstract = excluded.abstract,
            publisher = excluded.publisher, number = excluded.number,
-           part = excluded.part, edition = excluded.edition`,
+           part = excluded.part, edition = excluded.edition, ingested_at = excluded.ingested_at`,
       ).bind(
         flavor, row.file_path, row.r2_key, row.docid, row.norm, row.undated_norm,
         row.allparts_norm, row.year, row.published, row.title_en, row.doctype, row.status,
         row.abstract ?? null,
         row.publisher ?? null, row.number ?? null, row.part ?? null, row.edition ?? null,
+        ingestedAt,
       ),
     );
     stmts.push(
@@ -304,6 +306,43 @@ adminRoutes.post("/admin/ingest/:flavor", async (c) => {
   await putBlobs(c.env.BUCKET, chunk.blobs);
 
   return c.json({ ok: true, rows: chunk.rows.length, blobs: Object.keys(chunk.blobs).length });
+});
+
+// Delete a flavor's ghost rows: documents whose file_path was not touched
+// since `before` (rows the current ingest generation never re-stamped).
+// Shards cannot prune mid-wave — each shard only sees its own window — so
+// this runs once the whole wave is done. The FTS delete trigger keeps the
+// search index in step.
+adminRoutes.post("/admin/reconcile/:flavor", async (c) => {
+  if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
+    return c.text("Forbidden.", 403);
+  }
+
+  const flavor = c.req.param("flavor").replace(/[^a-z0-9-]/gi, "");
+  const { before } = await c.req.json<{ before?: string }>();
+  if (!before) return c.text("before timestamp is required.", 400);
+  const cutoff = Date.parse(before);
+  if (Number.isNaN(cutoff)) return c.text("before is not a timestamp.", 400);
+  // A future cutoff would match every row of the flavor.
+  if (cutoff > Date.now() + 5 * 60_000) return c.text("before must not be in the future.", 400);
+
+  const stale = "flavor = ?1 AND (ingested_at IS NULL OR ingested_at < ?2)";
+  const doomed = await c.env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM documents WHERE ${stale}`,
+  ).bind(flavor, before).first<{ n: number }>();
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `DELETE FROM docids WHERE document_id IN (SELECT id FROM documents WHERE ${stale})`,
+    ).bind(flavor, before),
+    c.env.DB.prepare(`DELETE FROM documents WHERE ${stale}`).bind(flavor, before),
+    c.env.DB.prepare(
+      `UPDATE flavors SET doc_count = (SELECT COUNT(*) FROM documents WHERE flavor = ?1)
+       WHERE flavor = ?1`,
+    ).bind(flavor),
+  ]);
+
+  return c.json({ flavor, before, deleted: doomed?.n ?? 0 });
 });
 
 async function putBlobs(bucket: R2Bucket, blobs: Record<string, string>, concurrency = 25): Promise<void> {

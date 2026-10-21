@@ -31,8 +31,6 @@ require "relaton/bib/hash_parser_v1"
 require "relaton/bib/item_data"
 require "pubid"
 
-registry = Relaton::Db::Registry.instance
-
 # Flavors with a PubID grammar; canonical renders add lookup variants that
 # absorb update_codes.yaml normalizations (e.g. "ISO/IEC Directives Part 1" →
 # "ISO/IEC DIR 1").
@@ -45,7 +43,7 @@ def derive_keys(code, flavor)
   part = ""
   if mod
     begin
-      id = mod.parse(code)
+      id = pubid_parse!(mod, code)
       canonical = id.to_s
       year = id.year.to_s
       raw_part = id.part
@@ -62,11 +60,17 @@ end
 
 # Pubid components of the primary docid, for the API's component search
 # (migration 0005). Absent components become nil so the columns stay NULL.
+# pubid >= 2 puts the parse entry on the flavor module (Pubid::Ieee.parse);
+# the released 1.15.x line only has Pubid::<Flavor>::Identifier.parse.
+def pubid_parse!(mod, code)
+  mod.respond_to?(:parse) ? mod.parse(code) : mod.const_get(:Identifier, false).parse(code)
+end
+
 def pubid_components(code, flavor)
   mod = pubid_module(flavor)
   return {} unless mod
 
-  id = mod.parse(code)
+  id = pubid_parse!(mod, code)
   h = id.root.to_hash
   {
     publisher: (h["publisher"] || Array(h["publishers"])&.first).to_s,
@@ -102,7 +106,7 @@ def pubid_canonicals(docid_list, flavor)
     next if d["type"] == "URN"
 
     id = begin
-      mod.parse(d["content"].to_s)
+      pubid_parse!(mod, d["content"].to_s)
     rescue StandardError
       next
     end
@@ -132,18 +136,38 @@ end
 
 # Old-schema (v1.2.x) docs go through the gem's own v1 hash parser.
 # Docs whose prefix no flavor processor claims use the generic Bib model.
-def xml_for(doc, text, processor, path)
+# v1.5 YAML carries flavor-specific structures (ISO agency, ext), so each
+# flavor parses with its own model in the relaton gem. The abstract
+# Core::Processor#from_yaml is unimplemented across flavors (v3 gap), so the
+# old processor route raised for every v1.5 file. Flavors without a model
+# (itu-r, rfcs, rfcsubseries) use the generic Bib item.
+FLAVOR_ITEM_MODULES = {
+  "3gpp" => "ThreeGpp", "adobe" => "Adobe", "bipm" => "Bipm",
+  "calconnect" => "Calconnect", "ccsds" => "Ccsds", "cie" => "Cie",
+  "easc" => "Easc", "ecma" => "Ecma", "etsi" => "Etsi", "gost" => "Gost",
+  "iala" => "Iala", "iana" => "Iana", "iec" => "Iec", "ieee" => "Ieee",
+  "ietf" => "Ietf", "iho" => "Iho", "iso" => "Iso", "itu" => "Itu",
+  "jcgm" => "Jcgm", "jis" => "Jis", "nist" => "Nist", "oasis" => "Oasis",
+  "ogc" => "Ogc", "oiml" => "Oiml", "plateau" => "Plateau",
+  "w3c" => "W3c", "xsf" => "Xsf",
+}.freeze
+
+def item_class(flavor)
+  name = FLAVOR_ITEM_MODULES[flavor]
+  (name && Relaton.const_get(name).const_get(:Item)) || Relaton::Bib::Item
+rescue NameError
+  Relaton::Bib::Item
+end
+
+def xml_for(doc, text, flavor, path)
   if path.end_with?(".xml")
     require "relaton/ietf/bibxml_parser"
     Relaton::Ietf::BibXMLParser.parse(text).to_xml(bibdata: true)
   elsif doc["docid"]
     bib_hash = Relaton::Bib::HashParserV1.hash_to_bib(doc)
     Relaton::Bib::ItemData.new(**bib_hash).to_xml(bibdata: true)
-  elsif processor
-    processor.from_yaml(text).to_xml(bibdata: true)
   else
-    require "relaton/bib/model/item"
-    Relaton::Bib::Item.from_yaml(text).to_xml(bibdata: true)
+    item_class(flavor).from_yaml(text).to_xml(bibdata: true)
   end
 end
 
@@ -192,8 +216,7 @@ files.each_with_index do |path, idx|
   primary = docid_list.find { |d| d["primary"] } || docid_list.first || {}
 
   begin
-    processor = registry.processor_by_ref(primary["content"].to_s)
-    xml = xml_for(doc, text, processor, path)
+    xml = xml_for(doc, text, options[:flavor], path)
   rescue StandardError => e
     warn "  [skip] #{rel}: #{e.class}: #{e.message}"
     errors += 1

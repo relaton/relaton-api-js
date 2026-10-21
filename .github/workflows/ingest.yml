@@ -17,6 +17,14 @@ on:
         description: "Process at most N files after skip (shard size; empty = all)"
         required: false
         default: ""
+      reconcile_flavor:
+        description: "Reconcile this flavor instead of ingesting (requires reconcile_before)"
+        required: false
+        default: ""
+      reconcile_before:
+        description: "Reconcile cutoff: delete rows not re-stamped since this ISO timestamp"
+        required: false
+        default: ""
   # relaton-data-* repos dispatch this on push (client_payload.flavor), so
   # dataset updates reach the API on their slice immediately instead of
   # waiting for the weekly sweep.
@@ -24,6 +32,21 @@ on:
     types: [relaton-data-update]
 
 jobs:
+  reconcile:
+    if: github.event_name == 'workflow_dispatch' && inputs.reconcile_flavor != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconcile flavor
+        env:
+          ADMIN_TOKEN: ${{ secrets.CLOUDFLARE_ADMIN_TOKEN }}
+          FLAVOR: ${{ inputs.reconcile_flavor }}
+          BEFORE: ${{ inputs.reconcile_before }}
+        run: |
+          curl -sf -X POST "https://api.relaton.org/admin/reconcile/$FLAVOR" \
+            -H "Authorization: Bearer $ADMIN_TOKEN" \
+            -H "content-type: application/json" \
+            -d "{\"before\": \"$BEFORE\"}" | jq -c .
+
   matrix:
     if: github.event_name != 'repository_dispatch'
     runs-on: ubuntu-latest

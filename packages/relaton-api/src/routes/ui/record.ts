@@ -498,6 +498,7 @@ ${asciibib ? `
 <div class="cite-style-row"><span class="cite-style-label">BibTeX</span><span class="cite-style-text">Reference managers and LaTeX</span><a class="dl-link" href="/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}/export.bib" download>Download</a></div>
 <div class="cite-style-row"><span class="cite-style-label">RIS</span><span class="cite-style-text">EndNote, Zotero, RefWorks</span><a class="dl-link" href="/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}/export.ris" download>Download</a></div>
 <div class="cite-style-row"><span class="cite-style-label">CSL</span><span class="cite-style-text">Citation Style Language JSON</span><a class="dl-link" href="/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}/export.csl.json" download>Download</a></div>
+<div class="cite-style-row"><span class="cite-style-label">JSON-LD</span><span class="cite-style-text">schema.org RDF for linked data</span><a class="dl-link" href="/collections/${escapeHtml(collection)}/entries/${encodeURIComponent(key.replace(/^data\//, ""))}/export.jsonld" download>Download</a></div>
 </div>
 </section>
 <p class="cite-hint">Citation fields are explained on <a href="https://www.relaton.org/model/" target="_blank" rel="noopener">relaton.org/model</a>.</p>`;

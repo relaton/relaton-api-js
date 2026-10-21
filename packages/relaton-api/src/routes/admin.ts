@@ -20,6 +20,12 @@ interface IngestRow {
   title_en: string | null;
   doctype: string | null;
   status: string | null;
+  // Pubid components of the primary docidentifier (the ingest tool parses
+  // them); optional so an older producer stays compatible.
+  publisher?: string | null;
+  number?: string | null;
+  part?: string | null;
+  edition?: string | null;
   docids: IngestDocid[];
 }
 
@@ -231,17 +237,22 @@ adminRoutes.post("/admin/ingest/:flavor", async (c) => {
       c.env.DB.prepare(
         `INSERT INTO documents
            (flavor, file_path, kind, r2_key, docid, norm, undated_norm, allparts_norm,
-            year, published, title_en, doctype, status, abstract)
-         VALUES (?1, ?2, 'document', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            year, published, title_en, doctype, status, abstract,
+            publisher, number, part, edition)
+         VALUES (?1, ?2, 'document', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
+                 ?14, ?15, ?16, ?17)
          ON CONFLICT (flavor, file_path, kind) DO UPDATE SET
            r2_key = excluded.r2_key, docid = excluded.docid, norm = excluded.norm,
            undated_norm = excluded.undated_norm, allparts_norm = excluded.allparts_norm,
            year = excluded.year, published = excluded.published, title_en = excluded.title_en,
-           doctype = excluded.doctype, status = excluded.status, abstract = excluded.abstract`,
+           doctype = excluded.doctype, status = excluded.status, abstract = excluded.abstract,
+           publisher = excluded.publisher, number = excluded.number,
+           part = excluded.part, edition = excluded.edition`,
       ).bind(
         flavor, row.file_path, row.r2_key, row.docid, row.norm, row.undated_norm,
         row.allparts_norm, row.year, row.published, row.title_en, row.doctype, row.status,
         row.abstract ?? null,
+        row.publisher ?? null, row.number ?? null, row.part ?? null, row.edition ?? null,
       ),
     );
     stmts.push(

@@ -12,6 +12,11 @@ export interface SearchParams {
   flavor?: string;
   doctype?: string;
   status?: string;
+  /** Pubid components of the primary docidentifier (ingest-parsed). */
+  publisher?: string;
+  number?: string;
+  part?: string;
+  edition?: string;
   yearFrom?: number | null;
   yearTo?: number | null;
   sort?: "relevance" | "year_desc" | "year_asc" | "docid";
@@ -106,6 +111,22 @@ function buildWhere(
   if (p.status) {
     clauses.push("status = ?");
     bind.push(p.status);
+  }
+  if (p.publisher) {
+    clauses.push("publisher = ? COLLATE NOCASE");
+    bind.push(p.publisher);
+  }
+  if (p.number) {
+    clauses.push("number = ? COLLATE NOCASE");
+    bind.push(p.number);
+  }
+  if (p.part) {
+    clauses.push("part = ? COLLATE NOCASE");
+    bind.push(p.part);
+  }
+  if (p.edition) {
+    clauses.push("edition = ? COLLATE NOCASE");
+    bind.push(p.edition);
   }
   if (p.yearFrom != null) {
     clauses.push("year >= ?");
@@ -214,6 +235,16 @@ export async function searchDocuments(
       await db.prepare("SELECT abstract FROM documents LIMIT 1").first();
     } catch {
       params = { ...params, inAbstract: false };
+    }
+  }
+  // The component columns arrive with migration 0005; a filter against a
+  // pre-migration database would be a syntax error, so drop the filters
+  // (they cannot match anything there anyway) instead of failing the query.
+  if (params.publisher || params.number || params.part || params.edition) {
+    try {
+      await db.prepare("SELECT publisher FROM documents LIMIT 1").first();
+    } catch {
+      params = { ...params, publisher: undefined, number: undefined, part: undefined, edition: undefined };
     }
   }
   const page = Math.max(0, params.page ?? 0);

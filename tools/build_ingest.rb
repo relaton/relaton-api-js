@@ -67,6 +67,14 @@ def pubid_parse!(mod, code)
   mod.respond_to?(:parse) ? mod.parse(code) : mod.const_get(:Identifier, false).parse(code)
 end
 
+# Flavors whose pubid models carry no publisher component: the publisher is
+# implied by the flavor itself (calconnect identifiers print the "CC" prefix).
+PUBID_PUBLISHER = {
+  "3gpp" => "3GPP", "bipm" => "BIPM", "calconnect" => "CC", "ecma" => "ECMA",
+  "iana" => "IANA", "jis" => "JIS", "oasis" => "OASIS", "ogc" => "OGC",
+  "w3c" => "W3C", "xsf" => "XSF",
+}.freeze
+
 def pubid_components(code, flavor)
   mod = pubid_module(flavor)
   return {} unless mod
@@ -75,8 +83,9 @@ def pubid_components(code, flavor)
   part = id.respond_to?(:parts) ? Array(id.parts).first : nil
   part = id.part if part.nil? && id.respond_to?(:part)
   edition = id.respond_to?(:edition) ? id.edition : nil
+  publisher = id.publisher&.to_s if id.respond_to?(:publisher)
   {
-    publisher: id.respond_to?(:publisher) ? id.publisher&.to_s : nil,
+    publisher: publisher || PUBID_PUBLISHER[flavor],
     number: id.number.to_s,
     part: part.is_a?(String) ? part : part&.value.to_s,
     edition: edition.is_a?(String) ? edition : edition&.to_s,

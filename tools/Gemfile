@@ -5,19 +5,27 @@ source "https://rubygems.org"
 # RELATON_GEM / PUBID_GEM accept:
 #   git:https://github.com/org/repo#branch-or-ref   (CI)
 #   /local/path                                      (local dev)
-# When unset, published gems are used — which currently lack the v3 APIs
-# the ingest tool needs (Relaton::Db::Registry, Bib::HashParserV1).
-def gem_from_env(name, env, default_constraint)
-  src = ENV[env]
-  if src&.start_with?("git:")
+# Defaults resolve both from git: published relaton (2.x) lacks the v3
+# APIs the ingest tool needs (Relaton::Db::Registry, Bib::HashParserV1),
+# and its relaton-nist chain pins pubid ~> 1.15, which cannot parse
+# NIST/IEEE/ITU identifiers at all (NameError inside the gem). The
+# monorepo lines carry every flavor the ingest map names.
+def gem_from_env(name, env, default)
+  src = ENV[env] || default
+  if src.start_with?("git:")
     url, ref = src.delete_prefix("git:").split("#", 2)
     gem name, git: url, ref: ref
-  elsif src
+  elsif src.start_with?("/")
     gem name, path: src
   else
-    gem name, default_constraint
+    gem name, src
   end
 end
 
-gem_from_env("relaton", "RELATON_GEM", "~> 2.1")
-gem_from_env("pubid", "PUBID_GEM", "~> 1.15")
+gem_from_env("relaton", "RELATON_GEM",
+             "git:https://github.com/relaton/relaton#cce25af56b8f60f05ccd8f625ba39dd2d52f824b")
+# Published pubid (1.15.x) cannot parse NIST/IEEE/ITU identifiers at all
+# (NameError inside the gem) and ships a fraction of the flavors; the
+# monorepo carries every flavor the ingest map names.
+gem_from_env("pubid", "PUBID_GEM",
+             "git:https://github.com/pubid/pubid#c4b4bd57f2729faeb49e69b6b97b798b3c30c8b5")

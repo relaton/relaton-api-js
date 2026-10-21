@@ -72,14 +72,17 @@ def pubid_components(code, flavor)
   return {} unless mod
 
   id = pubid_parse!(mod, code)
-  h = id.root.to_hash
+  part = id.respond_to?(:parts) ? Array(id.parts).first : nil
+  part = id.part if part.nil? && id.respond_to?(:part)
+  edition = id.respond_to?(:edition) ? id.edition : nil
   {
-    publisher: (h["publisher"] || Array(h["publishers"])&.first).to_s,
-    number: h["number"].to_s,
-    part: (h["part"] || Array(h["parts"])&.first).to_s,
-    edition: (h["edition"] || h["version"]).to_s,
-  }.transform_values { |v| v.strip.empty? ? nil : v }
-rescue StandardError
+    publisher: id.respond_to?(:publisher) ? id.publisher&.to_s : nil,
+    number: id.number.to_s,
+    part: part.is_a?(String) ? part : part&.value.to_s,
+    edition: edition.is_a?(String) ? edition : edition&.to_s,
+  }.transform_values { |v| v.to_s.strip.empty? ? nil : v }
+rescue StandardError => e
+  warn "  [components] #{code}: #{e.class}: #{e.message}"
   {}
 end
 
@@ -96,11 +99,14 @@ PUBID_FLAVORS = {
   "3gpp" => :Tgpp,
 }.freeze
 
+# pubid ships each flavor under its own gem name; 3gpp is pubid/tgpp.
+PUBID_REQUIRE = { "3gpp" => "tgpp" }.freeze
+
 def pubid_module(flavor)
   mod_name = PUBID_FLAVORS[flavor]
   return nil unless mod_name
 
-  require "pubid/#{flavor}"
+  require "pubid/#{PUBID_REQUIRE.fetch(flavor, flavor)}"
   Pubid.const_get(mod_name, false)
 rescue LoadError, NameError
   nil

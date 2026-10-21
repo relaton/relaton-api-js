@@ -60,6 +60,24 @@ def derive_keys(code, flavor)
   [norm, undated, allparts]
 end
 
+# Pubid components of the primary docid, for the API's component search
+# (migration 0005). Absent components become nil so the columns stay NULL.
+def pubid_components(code, flavor)
+  mod = pubid_module(flavor)
+  return {} unless mod
+
+  id = mod.parse(code)
+  h = id.root.to_hash
+  {
+    publisher: (h["publisher"] || Array(h["publishers"])&.first).to_s,
+    number: h["number"].to_s,
+    part: (h["part"] || Array(h["parts"])&.first).to_s,
+    edition: (h["edition"] || h["version"]).to_s,
+  }.transform_values { |v| v.strip.empty? ? nil : v }
+rescue StandardError
+  {}
+end
+
 PUBID_FLAVORS = {
   "iso" => :Iso, "iec" => :Iec, "ieee" => :Ieee, "itu" => :Itu,
   "nist" => :Nist, "iho" => :Iho, "bsi" => :Bsi, "jis" => :Jis,
@@ -207,6 +225,7 @@ files.each_with_index do |path, idx|
     { norm: c.upcase.delete(" "), raw: c, type: "canonical" }
   end
 
+  components = pubid_components(primary["content"].to_s, options[:flavor])
   rows << {
     file_path: rel,
     r2_key: r2_key,
@@ -220,6 +239,10 @@ files.each_with_index do |path, idx|
     doctype: doc["type"],
     status: extract_status(doc["status"]),
     abstract: abstract,
+    publisher: components[:publisher],
+    number: components[:number],
+    part: components[:part],
+    edition: components[:edition],
     docids: all_ids.map { |h| h.merge(norm: h[:norm].upcase.delete(" ")) }
                     .filter_map { |h| h[:norm].empty? ? nil : h }.uniq { |h| h[:norm] },
   }

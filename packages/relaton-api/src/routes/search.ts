@@ -20,6 +20,9 @@ const CSS = `
     border-radius: 8px; background: var(--bg); color: var(--fg); }
   .search-bar button { padding: 10px 18px; font: 14px var(--font); border: none; border-radius: 8px;
     background: var(--accent); color: #fff; cursor: pointer; }
+  .component-row { display: flex; gap: 8px; margin: 0 0 18px; }
+  .component-row input { flex: 1; min-width: 0; padding: 8px 10px; font: 13px var(--mono);
+    border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--fg); }
   .abstract-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--fg-2); }
   .facet-card {
     border: 1px solid var(--border); border-radius: 10px; background: var(--bg-soft);
@@ -113,6 +116,10 @@ function parseParams(url: URL): SearchParams {
     flavor: url.searchParams.get("flavor") || undefined,
     doctype: url.searchParams.get("doctype") || undefined,
     status: url.searchParams.get("status") || undefined,
+    publisher: url.searchParams.get("publisher")?.trim() || undefined,
+    number: url.searchParams.get("number")?.trim() || undefined,
+    part: url.searchParams.get("part")?.trim() || undefined,
+    edition: url.searchParams.get("edition")?.trim() || undefined,
     inAbstract: url.searchParams.get("abstract") === "1",
     semantic: url.searchParams.get("semantic") === "1",
     yearFrom: num("yearFrom"),
@@ -236,6 +243,12 @@ ${scopeMeta}
     <option value="relevance"${params.sort === "relevance" ? " selected" : ""}>Relevance</option>
     <option value="docid"${params.sort === "docid" ? " selected" : ""}>Identifier</option>
   </select>
+<div class="component-row">
+  <input name="publisher" value="${escapeHtml(params.publisher ?? "")}" placeholder="Publisher — ISO, IEEE…" aria-label="Publisher">
+  <input name="number" value="${escapeHtml(params.number ?? "")}" placeholder="Number — 9001, 802.3…" aria-label="Document number">
+  <input name="part" value="${escapeHtml(params.part ?? "")}" placeholder="Part" aria-label="Part">
+  <input name="edition" value="${escapeHtml(params.edition ?? "")}" placeholder="Edition" aria-label="Edition">
+</div>
   ${hidden}
   <button type="submit">Search</button>
 </form>

@@ -154,7 +154,9 @@ last_modified =
 def extract_status(status)
   case status
   when String then status
-  when Hash then status["stage"].is_a?(Hash) ? status["stage"]["value"] : status["stage"]
+  when Hash
+    stage = status["stage"]
+    stage.is_a?(Hash) ? (stage["value"] || stage["content"]) : stage
   end
 end
 

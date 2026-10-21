@@ -9,6 +9,14 @@ on:
         description: "Space-separated flavor list (defaults to all)"
         required: false
         default: ""
+      skip:
+        description: "Skip the first N files of each flavor's sorted file list (shard start)"
+        required: false
+        default: "0"
+      limit:
+        description: "Process at most N files after skip (shard size; empty = all)"
+        required: false
+        default: ""
   # relaton-data-* repos dispatch this on push (client_payload.flavor), so
   # dataset updates reach the API on their slice immediately instead of
   # waiting for the weekly sweep.
@@ -16,16 +24,32 @@ on:
     types: [relaton-data-update]
 
 jobs:
+  matrix:
+    if: github.event_name != 'repository_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      flavors: ${{ steps.set.outputs.flavors }}
+    steps:
+      - id: set
+        env:
+          FLAVORS: ${{ inputs.flavors }}
+        run: |
+          # The dispatch input replaces the whole matrix so a shard run
+          # (skip/limit below) processes only the flavor it names.
+          if [ -n "$FLAVORS" ]; then
+            echo "flavors=$(echo "$FLAVORS" | jq -Rc 'split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+          else
+            echo 'flavors=["3gpp","adobe","bipm","calconnect","ccsds","cie","easc","ecma","etsi","gost","iala","iana","iec","ieee","ietf","iho","iso","itu-r","itu","jcgm","jis","nist","oasis","ogc","oiml","plateau","rfcs","rfcsubseries","w3c","xsf"]' >> "$GITHUB_OUTPUT"
+          fi
+
   ingest:
     if: github.event_name != 'repository_dispatch'
+    needs: matrix
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        flavor:
-          [3gpp, adobe, bipm, calconnect, ccsds, cie, easc, ecma, etsi,
-           gost, iala, iana, iec, ieee, ietf, iho, iso, itu-r, itu, jcgm,
-           jis, nist, oasis, ogc, oiml, plateau, rfcs, rfcsubseries, w3c, xsf]
+        flavor: ${{ fromJSON(needs.matrix.outputs.flavors) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -48,7 +72,15 @@ jobs:
         env:
           RELATON_GEM: ${{ vars.RELATON_GEM }}
           PUBID_GEM: ${{ vars.PUBID_GEM }}
-        run: bundle exec ruby build_ingest.rb -r ../data/relaton-data-${{ matrix.flavor }} -f ${{ matrix.flavor }} -o out/${{ matrix.flavor }}
+          SKIP: ${{ inputs.skip }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          # Sharded dispatches process a window of the sorted file list; the
+          # upserts are disjoint, so shard runs compose into a full ingest.
+          args=""
+          [ -n "$SKIP" ] && args="$args --skip $SKIP"
+          [ -n "$LIMIT" ] && args="$args --limit $LIMIT"
+          bundle exec ruby build_ingest.rb -r ../data/relaton-data-${{ matrix.flavor }} -f ${{ matrix.flavor }} -o out/${{ matrix.flavor }} $args
       - name: Post chunks
         env:
           ADMIN_TOKEN: ${{ secrets.CLOUDFLARE_ADMIN_TOKEN }}

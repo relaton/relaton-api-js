@@ -18,6 +18,7 @@ OptionParser.new do |o|
   o.on("-o DIR", "--out DIR", "output directory (default: out/<flavor>)")
   o.on("-l N", "--limit N", Integer, "process at most N documents")
   o.on("-c N", "--chunk-size N", Integer, "documents per chunk (default 100)")
+  o.on("-s N", "--skip N", Integer, "skip the first N files (shard start)")
 end.parse!(into: options)
 
 abort "--repo is required" unless options[:repo]
@@ -124,6 +125,7 @@ end
 
 repo = "relaton/relaton-data-#{options[:flavor]}"
 files = %w[data static].flat_map { |d| Dir[File.join(options[:repo], d, "**", "*.{yaml,xml}")] }.sort
+files = files.drop(options[:skip]) if options[:skip]
 files = files.first(options[:limit]) if options[:limit]
 abort "no yaml files under #{options[:repo]}/{data,static}" if files.empty?
 

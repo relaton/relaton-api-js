@@ -166,6 +166,18 @@ rescue NameError
   Relaton::Bib::Item
 end
 
+def chunk_payload(flavor, repo, last_modified, chunk_rows, chunk_blobs, final:)
+  {
+    flavor: flavor,
+    repo: repo,
+    final: final,
+    lastModified: last_modified,
+    relatonVersion: "data-repos",
+    rows: chunk_rows,
+    blobs: chunk_blobs,
+  }
+end
+
 def xml_for(doc, text, flavor, path)
   if path.end_with?(".xml")
     require "relaton/ietf/bibxml_parser"
@@ -199,9 +211,15 @@ def ietf_xml_meta(text)
   }
 end
 
+# Bounded memory: only the current chunk's rows and blobs are held; the
+# rest is flushed to chunk files as the run proceeds. Accumulating every
+# record OOMs the 7 GB runners on the big corpora (ietf 179k, iso 80k,
+# 3gpp 89k, itu) — those jobs died to runner shutdowns on every run.
 rows = []
 blobs = {}
 errors = 0
+chunk_index = 0
+docs_written = 0
 
 files.each_with_index do |path, idx|
   rel = path.delete_prefix("#{options[:repo]}/")
@@ -279,24 +297,21 @@ files.each_with_index do |path, idx|
   blobs[r2_key] = xml
 
   puts "#{idx + 1}/#{files.size} #{rel}" if ((idx + 1) % 1000).zero?
+
+  next unless rows.size >= options[:chunk_size]
+
+  File.binwrite(File.join(out_dir, format("chunk-%04d.json", chunk_index)),
+                JSON.generate(chunk_payload(options[:flavor], repo, last_modified, rows, blobs, final: false)))
+  chunk_index += 1
+  docs_written += rows.size
+  rows = []
+  blobs = {}
 end
 
-chunk_size = options[:chunk_size]
-chunks = rows.each_slice(chunk_size).to_a
-chunks << [] if chunks.empty?
+# The final chunk closes the run (the API's finalize step keys on it); it is
+# written even when empty so a fully-skipped run still terminates cleanly.
+File.binwrite(File.join(out_dir, format("chunk-%04d.json", chunk_index)),
+              JSON.generate(chunk_payload(options[:flavor], repo, last_modified, rows, blobs, final: true)))
+docs_written += rows.size
 
-chunks.each_with_index do |chunk_rows, i|
-  chunk_blobs = chunk_rows.each_with_object({}) { |r, h| h[r[:r2_key]] = blobs[r[:r2_key]] }
-  payload = {
-    flavor: options[:flavor],
-    repo: repo,
-    final: i == chunks.size - 1,
-    lastModified: last_modified,
-    relatonVersion: "data-repos",
-    rows: chunk_rows,
-    blobs: chunk_blobs,
-  }
-  File.binwrite(File.join(out_dir, format("chunk-%04d.json", i)), JSON.generate(payload))
-end
-
-puts "wrote #{chunks.size} chunk(s) to #{out_dir} (#{rows.size} docs, #{errors} skipped)"
+puts "wrote #{chunk_index + 1} chunk(s) to #{out_dir} (#{docs_written} docs, #{errors} skipped)"

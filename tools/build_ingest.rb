@@ -82,10 +82,17 @@ rescue StandardError
   {}
 end
 
+# Every collection whose identifiers have a pubid grammar. pubid main also
+# carries 3gpp as Pubid::Tgpp; itu-r, rfcs and rfcsubseries have none.
 PUBID_FLAVORS = {
-  "iso" => :Iso, "iec" => :Iec, "ieee" => :Ieee, "itu" => :Itu,
-  "nist" => :Nist, "iho" => :Iho, "bsi" => :Bsi, "jis" => :Jis,
-  "ccsds" => :Ccsds, "etsi" => :Etsi, "plateau" => :Plateau,
+  "adobe" => :Adobe, "bipm" => :Bipm, "bsi" => :Bsi,
+  "calconnect" => :Calconnect, "ccsds" => :Ccsds, "cie" => :Cie,
+  "easc" => :Easc, "ecma" => :Ecma, "etsi" => :Etsi, "gost" => :Gost,
+  "iala" => :Iala, "iana" => :Iana, "iho" => :Iho, "iso" => :Iso,
+  "iec" => :Iec, "ieee" => :Ieee, "itu" => :Itu, "jcgm" => :Jcgm,
+  "jis" => :Jis, "nist" => :Nist, "oasis" => :Oasis, "ogc" => :Ogc,
+  "oiml" => :Oiml, "plateau" => :Plateau, "w3c" => :W3c, "xsf" => :Xsf,
+  "3gpp" => :Tgpp,
 }.freeze
 
 def pubid_module(flavor)

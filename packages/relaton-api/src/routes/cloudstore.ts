@@ -120,8 +120,11 @@ cloudStoreRoutes.get("/collections/:collection/entries/:key/export.:format", asy
   if (!obj) return c.text(`no such entry: ${key}`, 404);
   const body = await obj.text();
 
-  const { fromXml, toBibtex, toRis, toCslJson, toJsonLd } = await import("relaton");
-  const parsed = fromXml(body);
+  const { parse, fromXml, toBibtex, toRis, toCslJson, toJsonLd } = await import("relaton");
+  // Collections store YAML (the data repos' format) or XML (bibxml builds):
+  // XML goes through the loose DOM parser, everything else through the
+  // sniffing validator, so exports work over either storage form.
+  const parsed = body.trimStart().startsWith("<") ? fromXml(body) : parse(body);
   if (!parsed.ok) return c.text("record could not be parsed for export", 502);
   const slug = row.docid?.replace(/[^A-Za-z0-9]+/g, "") || "relaton";
 

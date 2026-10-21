@@ -209,3 +209,55 @@ describe("lutaml cloud store UI", () => {
     expect(json.datePublished).toBe("2022-06-21");
   });
 });
+
+describe("record export over YAML storage", () => {
+  const yaml = `---
+id: RFC7231
+title:
+- content: "Hypertext Transfer Protocol (HTTP/1.1): Semantics and Content"
+  language: en
+  script: Latn
+  type: main
+date:
+- type: published
+  at: 2022-06-21
+docidentifier:
+- content: RFC 7231
+  type: IETF
+  primary: true
+`;
+
+  function yamlEnv() {
+    return makeEnv({
+      flavor: flavorRow,
+      entry: { docid: "RFC 7231", r2_key: "ietf/rfc-7231" },
+      docids: ["RFC 7231"],
+      objects: { "ietf/rfc-7231": yaml },
+    });
+  }
+
+  function exportAs(format: string, env: unknown) {
+    const app = createApp({});
+    return app.request(
+      `/collections/ietf/entries/rfc%207231/export.${format}`,
+      {},
+      env as never,
+    );
+  }
+
+  it("exports JSON-LD from a YAML-stored record", async () => {
+    const res = await exportAs("jsonld", yamlEnv());
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, any>;
+    expect(json["@type"]).toBe("CreativeWork");
+    expect(json.name).toContain("Hypertext Transfer Protocol");
+  });
+
+  it("exports CSL from a YAML-stored record", async () => {
+    const res = await exportAs("csl.json", yamlEnv());
+    expect(res.status).toBe(200);
+    const items = JSON.parse(await res.text()) as { title?: string }[];
+    expect(Array.isArray(items)).toBe(true);
+    expect(String(items[0]?.title)).toContain("Hypertext Transfer Protocol");
+  });
+});

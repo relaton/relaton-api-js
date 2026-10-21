@@ -3,10 +3,32 @@ name: deploy
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  # PRs validate the worker bundle exactly the way the deploy does —
+  # `wrangler deploy --dry-run` rejects, among other things, a dependency
+  # graph that pulls node builtins into the bundle. No Cloudflare
+  # credentials and no migration run here: this job cannot touch
+  # production.
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Dry-run the worker bundle
+        run: npx wrangler deploy --dry-run --outdir dist-dry
+
   deploy:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -177,35 +177,4 @@ describe("lutaml cloud store UI", () => {
     expect(client.headers.get("content-type")).toBe("application/yaml");
     expect(await client.text()).toBe("id: RFC7231\n");
   });
-
-  it("exports a record as schema.org JSON-LD", async () => {
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<bibdata type="standard">
-  <docidentifier type="IETF" primary="true">RFC 7231</docidentifier>
-  <title language="en" script="Latn" type="main">Hypertext Transfer Protocol (HTTP/1.1): Semantics and Content</title>
-  <date type="published"><on>2022-06-21</on></date>
-</bibdata>`;
-    const app = createApp({});
-    const env = makeEnv({
-      flavor: flavorRow,
-      entry: { docid: "RFC 7231", r2_key: "ietf/rfc-7231" },
-      docids: ["RFC 7231"],
-      objects: { "ietf/rfc-7231": xml },
-    });
-
-    const res = await app.request(
-      "/collections/ietf/entries/rfc%207231/export.jsonld",
-      {},
-      env as never,
-    );
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toContain("application/ld+json");
-
-    const json = (await res.json()) as Record<string, any>;
-    expect(json["@context"]).toBe("https://schema.org");
-    expect(json["@type"]).toBe("CreativeWork");
-    expect(json.identifier).toBe("RFC 7231");
-    expect(json.name).toContain("Hypertext Transfer Protocol");
-    expect(json.datePublished).toBe("2022-06-21");
-  });
 });

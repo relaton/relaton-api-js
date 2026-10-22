@@ -32,7 +32,7 @@ on:
     types: [relaton-data-update]
 
 jobs:
-  reconcile:
+  reconcile-manual:
     if: github.event_name == 'workflow_dispatch' && inputs.reconcile_flavor != ''
     runs-on: ubuntu-latest
     steps:

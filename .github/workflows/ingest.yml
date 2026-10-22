@@ -48,7 +48,10 @@ jobs:
             -d "{\"before\": \"$BEFORE\"}" | jq -c .
 
   matrix:
-    if: github.event_name != 'repository_dispatch'
+    # A manual-reconcile dispatch runs reconcile-manual only: without this
+    # gate the matrix falls back to the full flavor list and the run
+    # re-ingests the whole fleet beside the reconcile.
+    if: github.event_name != 'repository_dispatch' && inputs.reconcile_flavor == ''
     runs-on: ubuntu-latest
     outputs:
       flavors: ${{ steps.set.outputs.flavors }}

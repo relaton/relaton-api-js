@@ -10,6 +10,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "test": "vitest run",
+    "test:contract": "node packages/relaton-api/contract/run.mjs",
     "typecheck": "tsc --noEmit",
     "db:migrate:local": "wrangler d1 migrations apply api-relaton-org --local",
     "db:migrate:remote": "wrangler d1 migrations apply api-relaton-org --remote"

@@ -1,0 +1,42 @@
+# The executable contract (TODO.api/12): contract/fixtures.json run against a
+# live deployment. Production is the default target — every fixture is a
+# read-only GET, so a smoke run touches nothing — and a dev deployment can be
+# aimed at by overriding RELATON_API_BASE_URL. The deployment repo's
+# post-deploy smoke calls this same file (workflow_call), and the Ruby gem's
+# CI runs contract/run.mjs directly, so both implementations are held to one
+# fixture set at the same contract version.
+name: contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Base URL to run the fixtures against"
+        required: false
+        default: "https://api.relaton.org"
+  schedule:
+    # A daily drift alarm: a production answer that stops matching the
+    # contract surfaces here, not by a consumer reporting it.
+    - cron: "0 5 * * *"
+  workflow_call:
+    inputs:
+      base_url:
+        description: "Base URL to run the fixtures against"
+        required: false
+        default: "https://api.relaton.org"
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run the contract fixtures
+        env:
+          RELATON_API_BASE_URL: ${{ inputs.base_url || 'https://api.relaton.org' }}
+        run: node packages/relaton-api/contract/run.mjs

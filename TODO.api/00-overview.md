@@ -53,7 +53,7 @@ machine-index rollout; phase files 01-06 and 09-10 restored from the
 | 05 | 05-json-schema.md | JSON Schema contract | pending |
 | 06 | 06-index-contract-all-flavors.md | index rollout | **in progress** (machine index v2 live on Pages and api.relaton.org; API key import pending) |
 | 07 | 07-npm-package.md | `@relaton/api` | **in progress** (library extraction done; CLI init/check done; deploy/ingest pending) |
-| 08 | 08-repo-decomposition.md | three-repo split | **in progress** (repo renamed; ruby gem + deployment repo pending) |
+| 08 | 08-repo-decomposition.md | three-repo split | **in progress** (repo renamed; relaton-api-ruby created 2026-10-28 with Lambda-era founding history + the v3-subset Rack implementation; deployment repo conversion pending) |
 | 09 | 09-site-integration.md | relaton.org on v3 | pending (site now Astro) |
 | 10 | 10-observability-ops.md | ops | pending |
 | 11 | 11-ruby-gem.md | `relaton-api` gem | pending |

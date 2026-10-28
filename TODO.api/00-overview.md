@@ -1,7 +1,8 @@
 # 00 — Relaton API master plan
 
-Status: active (2026-08-17, rev 2: three-repo decomposition). Each phase has
-its own file (`{n}-{name}.md`).
+Status: active (2026-10-28, rev 3: status refresh after the index-v2 and
+machine-index rollout; phase files 01-06 and 09-10 restored from the
+`todo-01-progress` tree). Each phase has its own file (`{n}-{name}.md`).
 
 ## Principles (rulings from this session)
 
@@ -45,22 +46,30 @@ its own file (`{n}-{name}.md`).
 
 | # | File | Phase | Status |
 |---|---|---|---|
-| 01 | 01-ietf-unified-dataset.md | IETF dataset (#109) | pending |
+| 01 | 01-ietf-unified-dataset.md | IETF dataset (#109) | dataset shipped as index-v2; API import switch pending |
 | 02 | 02-storage-v2.md | D1 schema v2 | pending |
-| 03 | 03-api-v3.md | v3 surface | pending |
-| 04 | 04-graphql-model.md | model-typed GraphQL | pending |
+| 03 | 03-api-v3.md | v3 surface | pending (v1 routes live; OpenAPI docs shipped) |
+| 04 | 04-graphql-model.md | model-typed GraphQL | pending (flat schema live) |
 | 05 | 05-json-schema.md | JSON Schema contract | pending |
-| 06 | 06-index-contract-all-flavors.md | index rollout | pending |
+| 06 | 06-index-contract-all-flavors.md | index rollout | **in progress** (machine index v2 live on Pages and api.relaton.org; API key import pending) |
 | 07 | 07-npm-package.md | `@relaton/api` | **in progress** (library extraction done; CLI init/check done; deploy/ingest pending) |
-| 08 | 08-repo-decomposition.md | three-repo split | pending (rev 2) |
-| 09 | 09-site-integration.md | relaton.org on v3 | pending |
+| 08 | 08-repo-decomposition.md | three-repo split | **in progress** (repo renamed; ruby gem + deployment repo pending) |
+| 09 | 09-site-integration.md | relaton.org on v3 | pending (site now Astro) |
 | 10 | 10-observability-ops.md | ops | pending |
 | 11 | 11-ruby-gem.md | `relaton-api` gem | pending |
 | 12 | 12-conformance-suite.md | shared contract tests | pending |
 | 13 | 13-code-quality-refactor.md | constitution applied | **in progress** (tools autoload refactor done; TS pass done) |
+| 14 | 14-key-semantics.md | key derivation | resolved |
 
-## Current state
+## Current state (2026-10-28)
 
-Production unchanged: https://api.relaton.org via route
-`api.relaton.org/*` → `api-relaton-org`; ~400k docs across 11 flavors
-(D1 v1 + R2). Open PRs: #1 deploy workflow, #2 ietf fixes, #4 this plan.
+Production: https://api.relaton.org on the `api-relaton-org` Worker (D1 v1 +
+R2). REST is still `/api/v1/{document,search,version}`, alongside the
+cloud-store collections, `/graphql`, and the machine-index contract
+(`/:flavor/index/manifest.json` + `shard-NNNNN.json`). Component search
+(publisher/number/part/edition) is live.
+
+The all-parts family builder explored on the `all-parts-family` and
+`combined` branches was not adopted: main answers all_parts from stored
+aggregate rows (`allparts_norm`). The plan files from those branches are
+restored here.

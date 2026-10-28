@@ -53,6 +53,59 @@ function tokenMatches(header: string | undefined, token: string): boolean {
 
 export const adminRoutes = new Hono<AppEnv>();
 
+interface MachineIndexFile {
+  name: string;
+  body: string; // base64 of the exact producer bytes
+}
+
+interface MachineIndexUpload {
+  files: MachineIndexFile[];
+}
+
+// The Pages machine-index shard names and the manifest, nothing else:
+// these objects are served byte-for-byte to relaton ShardSource clients.
+const MACHINE_INDEX_NAME_RX = /^(manifest\.json|shard-\d{5}\.json)$/;
+const MACHINE_INDEX_BATCH = 64;
+
+/**
+ * Mirrors a flavor's published machine index (`index/manifest.json` +
+ * `index/shard-NNNNN.json`) into R2 under `index/<flavor>/`, from where
+ * the public machine-index routes serve it byte-for-byte. Files arrive
+ * base64 so the producer bytes are never re-encoded; ETags come from the
+ * stored objects, so If-None-Match revalidation matches the content.
+ */
+adminRoutes.post("/admin/ingest/:flavor/machine-index", async (c) => {
+  if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
+    return c.text("Forbidden.", 403);
+  }
+  const flavor = c.req.param("flavor").replace(/[^a-z0-9-]/gi, "");
+  if (!flavor) return c.text("Invalid flavor.", 400);
+
+  const upload = await c.req.json<MachineIndexUpload>().catch(() => null);
+  if (!upload || !Array.isArray(upload.files) || upload.files.length === 0) {
+    return c.text("Expected { files: [{ name, body }] } with at least one file.", 400);
+  }
+  for (const f of upload.files) {
+    if (!MACHINE_INDEX_NAME_RX.test(f.name) || typeof f.body !== "string") {
+      return c.text(`Invalid machine-index file name: ${f.name}`, 400);
+    }
+  }
+
+  let written = 0;
+  for (let i = 0; i < upload.files.length; i += MACHINE_INDEX_BATCH) {
+    await Promise.all(
+      upload.files.slice(i, i + MACHINE_INDEX_BATCH).map((f) => {
+        const bytes = Uint8Array.from(atob(f.body), (ch) => ch.charCodeAt(0));
+        return c.env.BUCKET.put(`index/${flavor}/${f.name}`, bytes, {
+          httpMetadata: { contentType: "application/json" },
+        });
+      }),
+    );
+    written += Math.min(MACHINE_INDEX_BATCH, upload.files.length - i);
+  }
+  return c.json({ ok: true, files: written });
+});
+
 /**
  * Backfills the abstract column for already-ingested documents by reading
  * each record from R2 and extracting the abstract. Paged: pass ?cursor=

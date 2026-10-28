@@ -7,9 +7,12 @@ Production never changes worker/route during the migration.
 
 - [ ] `relaton/relaton-api-js`: rename of api.relaton.org-workers once 07
       ships a stable alpha; PRs #1/#2 land here; publishes @relaton/api.
-- [ ] `relaton/relaton-api-ruby`: create; `git subtree split -P lib` (and
-      `spec/`) from relaton/api.relaton.org pushed as founding history;
-      scaffold per 11-ruby-gem.md.
+- [x] `relaton/relaton-api-ruby`: created (2026-10-28); founding history is
+      `git subtree split -P lib` of relaton/api.relaton.org@master (107
+      Lambda-era commits), with the v3-subset Rack implementation over
+      dataset directories stacked on top as the working tree (lib/relaton/
+      api{,.rb} namespace per 11-ruby-gem.md; spec/, examples/config.ru,
+      gemspec included).
 - [ ] `relaton/api.relaton.org` → pure deployment repo (branch
       `deployment-only`): tag `legacy-lambda-final` first; new tree =
       relaton-api.yaml + worker/ entry + ruby/config.ru + workflows + this

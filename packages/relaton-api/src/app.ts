@@ -5,6 +5,7 @@ import type { AppEnv } from "./env";
 import { adminRoutes } from "./routes/admin";
 import { restRoutes } from "./routes/rest";
 import { cloudStoreRoutes } from "./routes/cloudstore";
+import { machineIndexRoutes } from "./routes/machine_index";
 import { graphqlRoute } from "./routes/graphql";
 import { renderHome } from "./routes/home";
 import { renderCreatePage, renderCreatePreview, type CreatePayload } from "./routes/create";
@@ -123,7 +124,9 @@ export function createApp(configInput: unknown = {}) {
     return c.json(renderCreatePreview(payload));
   });
 
+
   app.route("/", restRoutes);
+  app.route("/", machineIndexRoutes);
   app.route("/", cloudStoreRoutes);
   app.route("/", adminRoutes);
   app.all(config.paths.graphql, graphqlRoute());

@@ -101,43 +101,51 @@ cloudStoreRoutes.openapi(collectionsRoute, async (c) => {
 });
 
 // Citation files: BibTeX, RIS, and CSL-JSON downloads for one record.
-cloudStoreRoutes.get("/collections/:collection/entries/:key/export.:format", async (c) => {
-  const collection = c.req.param("collection");
-  const key = c.req.param("key");
-  const format = c.req.param("format") ?? "";
-  const FORMATS: Record<string, { ext: string; type: string }> = {
-    bib: { ext: "bib", type: "application/x-bibtex" },
-    ris: { ext: "ris", type: "application/x-research-info-systems" },
-    "csl.json": { ext: "csl.json", type: "application/json" },
-    jsonld: { ext: "jsonld", type: "application/ld+json" },
-  };
-  const spec = FORMATS[format];
-  if (!spec) return c.text(`unknown export format: ${format}`, 404);
+//
+// One static route per format, not a dot-param (`export.:format`): hono's
+// RegExpRouter drops a dot-param route from the merged GET regex once any
+// other GET pattern is added, so a bare `app.get("/zzz/:x")` elsewhere in
+// the app 404s every export. Static suffixes merge cleanly and keep the
+// same URLs.
+const EXPORT_FORMATS: Record<string, { ext: string; type: string }> = {
+  bib: { ext: "bib", type: "application/x-bibtex" },
+  ris: { ext: "ris", type: "application/x-research-info-systems" },
+  "csl.json": { ext: "csl.json", type: "application/json" },
+  jsonld: { ext: "jsonld", type: "application/ld+json" },
+};
 
-  const row = await findEntryRow(c.env.DB, collection, key);
-  if (!row) return c.text(`no such entry: ${key}`, 404);
-  const obj = await c.env.BUCKET.get(row.r2_key);
-  if (!obj) return c.text(`no such entry: ${key}`, 404);
-  const body = await obj.text();
+for (const exportFormat of Object.keys(EXPORT_FORMATS)) {
+  cloudStoreRoutes.get(`/collections/:collection/entries/:key/export.${exportFormat}`, async (c) => {
+    const collection = c.req.param("collection");
+    const key = c.req.param("key");
+    const format = exportFormat;
+    const spec = EXPORT_FORMATS[format]!;
 
-  const { parse, fromXml, toBibtex, toRis, toCslJson, toJsonLd } = await import("relaton");
-  // Collections store YAML (the data repos' format) or XML (bibxml builds):
-  // XML goes through the loose DOM parser, everything else through the
-  // sniffing validator, so exports work over either storage form.
-  const parsed = body.trimStart().startsWith("<") ? fromXml(body) : parse(body);
-  if (!parsed.ok) return c.text("record could not be parsed for export", 502);
-  const slug = row.docid?.replace(/[^A-Za-z0-9]+/g, "") || "relaton";
+    const row = await findEntryRow(c.env.DB, collection, key);
+    if (!row) return c.text(`no such entry: ${key}`, 404);
+    const obj = await c.env.BUCKET.get(row.r2_key);
+    if (!obj) return c.text(`no such entry: ${key}`, 404);
+    const body = await obj.text();
 
-  const content = format === "bib" ? toBibtex(parsed.item)
-    : format === "ris" ? toRis(parsed.item)
-    : format === "jsonld" ? toJsonLd(parsed.item)
-    : toCslJson(parsed.item);
-  return c.text(content, 200, {
-    "content-type": spec.type + "; charset=utf-8",
-    "content-disposition": `attachment; filename="${slug}.${spec.ext}"`,
-    "cache-control": "public, max-age=300, stale-while-revalidate=86400",
+    const { parse, fromXml, toBibtex, toRis, toCslJson, toJsonLd } = await import("relaton");
+    // Collections store YAML (the data repos' format) or XML (bibxml builds):
+    // XML goes through the loose DOM parser, everything else through the
+    // sniffing validator, so exports work over either storage form.
+    const parsed = body.trimStart().startsWith("<") ? fromXml(body) : parse(body);
+    if (!parsed.ok) return c.text("record could not be parsed for export", 502);
+    const slug = row.docid?.replace(/[^A-Za-z0-9]+/g, "") || "relaton";
+
+    const content = format === "bib" ? toBibtex(parsed.item)
+      : format === "ris" ? toRis(parsed.item)
+      : format === "jsonld" ? toJsonLd(parsed.item)
+      : toCslJson(parsed.item);
+    return c.text(content, 200, {
+      "content-type": spec.type + "; charset=utf-8",
+      "content-disposition": `attachment; filename="${slug}.${spec.ext}"`,
+      "cache-control": "public, max-age=300, stale-while-revalidate=86400",
+    });
   });
-});
+}
 
 // Browsable collection page: the shared search engine scoped to one flavor.
 cloudStoreRoutes.get("/collections/:collection", async (c) => {

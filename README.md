@@ -13,6 +13,7 @@ can deploy its own instance of this API — see [Deploying your own](#deploying-
 | `GET /api/v1/version?format=text\|xml\|json` | API + data versions |
 | `GET /openapi.json`, `GET /docs` | OpenAPI 3.1 spec + Scalar UI |
 | `POST /graphql` | GraphQL across all flavors (`document`, `documents(code/flavor/title/year/doctype, first/after)`, `flavors`, `version`); GraphiQL playground at GET `/graphql` |
+| `GET /{flavor}/index/manifest.json`, `GET /{flavor}/index/shard-NNNNN.json` | The machine-index contract — the same bytes the relaton-data-* Pages sites publish, mirrored into R2 at ingest (`tools/sync_machine_index.sh`). A relaton `ShardSource` treats this host as just another index host: base-URL swap, ETag/`If-None-Match` revalidation, a missing shard is a definitive not-found (api-js#14) |
 | `POST /admin/ingest/:flavor` | Chunked ingestion (Bearer `ADMIN_TOKEN`) |
 
 The public API is read-only and requires no authentication.

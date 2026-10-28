@@ -51,13 +51,13 @@ machine-index rollout; phase files 01-06 and 09-10 restored from the
 | 03 | 03-api-v3.md | v3 surface | pending (v1 routes live; OpenAPI docs shipped) |
 | 04 | 04-graphql-model.md | model-typed GraphQL | pending (flat schema live) |
 | 05 | 05-json-schema.md | JSON Schema contract | pending |
-| 06 | 06-index-contract-all-flavors.md | index rollout | **in progress** (machine index v2 live on Pages and api.relaton.org; API key import pending) |
+| 06 | 06-index-contract-all-flavors.md | index rollout | **in progress** (machine index v2 live; dataset alias keys imported and bare-variant derivation made structural — relaton-api-js#87/#88, relaton#395; query side pending) |
 | 07 | 07-npm-package.md | `@relaton/api` | **in progress** (library extraction done; CLI init/check done; deploy/ingest pending) |
 | 08 | 08-repo-decomposition.md | three-repo split | **in progress** (repo renamed; relaton-api-ruby created 2026-10-28 with Lambda-era founding history + the v3-subset Rack implementation; deployment repo conversion pending) |
 | 09 | 09-site-integration.md | relaton.org on v3 | pending (site now Astro) |
 | 10 | 10-observability-ops.md | ops | pending |
 | 11 | 11-ruby-gem.md | `relaton-api` gem | pending |
-| 12 | 12-conformance-suite.md | shared contract tests | pending |
+| 12 | 12-conformance-suite.md | shared contract tests | **in progress** (fixtures + node runner shipped 2026-10-29, relaton-api-js#90; daily production drift alarm; ruby CI replays the same set) |
 | 13 | 13-code-quality-refactor.md | constitution applied | **in progress** (tools autoload refactor done; TS pass done) |
 | 14 | 14-key-semantics.md | key derivation | resolved |
 

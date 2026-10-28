@@ -1,9 +1,13 @@
 # 06 — Index contract across ALL relaton-data-* flavors
 
-Status (2026-10-28): largely done — `relaton index` emits the v2 machine
-index (manifest + shards) in the shared data-deploy workflow for the data
-repos, and api.relaton.org serves the same contract. Remaining: the API
-imports dataset keys, and the per-flavor derivation below is deleted.
+Status (2026-10-29): advanced — the ingest imports dataset keys
+(relaton-api-js#88: fetcher-committed alias rows from the checkout's
+committed index, indexed as `dataset` docids) and the ingest's
+per-flavor string hacks are gone (relaton-api-js#87: bare variants are
+structural pubid round-trips; the generator derives canonical and
+further-docid alias rows — relaton/relaton#395). Remaining: the query
+side (`lookup.ts` canonicalize) and retiring the derived-canonical pass
+once every flavor's Pages index regenerates with alias rows.
 
 Goal: every relaton-data-* repo ships the #109-style index (canonical id,
 docid variants incl. cross-refs, title/year/doctype/status, file). The API's

@@ -138,7 +138,48 @@ def pubid_canonicals(docid_list, flavor)
   end.uniq
 end
 
+# Alias rows the dataset's own committed index carries beyond each file's
+# first: ids the crawler aliased onto a record-bearing document's file
+# (relaton-data-iana's record-less registries). No data file carries such
+# an id, so no docidentifier or derivation below can produce it — the
+# dataset is the only source, and the API imports it as a token. Rendered
+# through the flavor's pubid grammar like every other key.
+def committed_index_aliases(repo, flavor)
+  index = Dir[File.join(repo, "index-v*.yaml")]
+          .max_by { |p| p[/index-v(\d+)\.yaml$/, 1].to_i }
+  return {} unless index
+
+  rows = YAML.safe_load(File.read(index), permitted_classes: [Symbol]) || []
+  mod = pubid_module(flavor)
+  return {} unless mod
+
+  ident = mod.respond_to?(:from_hash) ? mod : mod.const_get(:Identifier, false)
+  first = {}
+  rows.each_with_object({}) do |row, acc|
+    next unless row.is_a?(Hash) && row[:id].is_a?(Hash) && row[:file]
+
+    file = row[:file]
+    unless first.key?(file)
+      first[file] = true
+      next
+    end
+    pubid = ident.from_hash(row[:id].transform_keys(&:to_s)) rescue next
+    render = pubid.to_s
+    next if render.empty?
+
+    (acc[file] ||= []) << { norm: render.upcase.delete(" "), raw: render, type: "dataset" }
+  end
+rescue StandardError => e
+  warn "index aliases: ignoring #{index}: #{e.class}: #{e.message}"
+  {}
+end
+
 repo = "relaton/relaton-data-#{options[:flavor]}"
+# Loaded once: { file => [docid rows] } for the dataset's committed alias rows.
+COMMITTED_ALIASES = committed_index_aliases(options[:repo], options[:flavor]).freeze
+unless COMMITTED_ALIASES.empty?
+  warn "index aliases: #{COMMITTED_ALIASES.sum { |_, rows| rows.size }} row(s) from the committed index"
+end
 files = %w[data static].flat_map { |d| Dir[File.join(options[:repo], d, "**", "*.{yaml,xml}")] }.sort
 files = files.drop(options[:skip]) if options[:skip]
 files = files.first(options[:limit]) if options[:limit]
@@ -327,7 +368,7 @@ files.each_with_index do |path, idx|
     { norm: d["content"].to_s.upcase.delete(" "), raw: d["content"], type: d["type"] }
   end.compact + canonicals.map do |c|
     { norm: c.upcase.delete(" "), raw: c, type: "canonical" }
-  end
+  end + (COMMITTED_ALIASES[rel] || [])
 
   components = pubid_components(primary["content"].to_s, options[:flavor])
   rows << {

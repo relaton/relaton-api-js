@@ -153,19 +153,42 @@ last_modified =
 
 # Versioned identifiers also index their bare form: ETSI
 # "GS QKD 014 V1.1.1 (2019-02)" <- "GS QKD 014"; NIST "800-53r5" <-
-# "800-53"; ITU "G.7710 (11/2025)" <- "G.7710". Same role as the 3GPP
-# release-suffix rule below.
-def bare_variants(docid)
-  variants = []
-  v = docid.sub(/\s*V\d+(?:\.\d+)*(?:\s*\((?:19|20)\d{2}(?:-\d{2})?\))?\z/, "")
-  variants << v if v != docid && !v.strip.empty?
-  r = docid.sub(/r\d+\z/i, "")
-  variants << r if r != docid && !r.strip.empty?
-  itu = docid.sub(/\s*\(\d{2}\/(?:19|20)\d{2}\)\z/, "")
-  variants << itu if itu != docid && !itu.strip.empty?
-  clean = docid.sub(/[:\s]+\z/, "")
-  variants << clean if clean != docid && !clean.empty?
-  variants.uniq
+# "800-53"; ITU "G.7710 (11/2025)" <- "G.7710"; 3GPP
+# "TS 23.040:REL-19/19.0.0" <- "TS 23.040", so the bare id resolves to
+# the latest release. The variant is structural: parse the docid, drop
+# the flavor's version-ish attributes from the pubid hash, and render
+# what remains — a new flavor joins by adding one BARE_VARIANT_KEYS
+# entry, no string surgery.
+BARE_VARIANT_KEYS = {
+  # etsi legacy editions are version + is_edition; dropping the version
+  # alone renders a dangling "ed.".
+  "etsi" => %w[version is_edition edition year month],
+  "itu" => %w[year month],
+  "nist" => %w[edition],
+  "3gpp" => %w[release version],
+}.freeze
+
+def bare_variants(docid, flavor)
+  drop = BARE_VARIANT_KEYS[flavor]
+  mod = pubid_module(flavor)
+  return [] if drop.nil? || drop.empty? || mod.nil?
+
+  id = pubid_parse!(mod, docid)
+  hash = id.to_hash
+  bare_hash = hash.reject { |key, _| drop.include?(key) }
+  return [] if bare_hash == hash
+
+  bare = id.class.from_hash(bare_hash).to_s
+  # Flavors whose pubid model carries no publisher render without the
+  # prefix the dataset spells ("3GPP TR 00.01U"); queries type the
+  # prefixed spelling, so the variant keeps it.
+  implied = PUBID_PUBLISHER[flavor]
+  if implied && docid.start_with?("#{implied} ") && !bare.start_with?(implied)
+    bare = "#{implied} #{bare}"
+  end
+  bare.empty? || bare == docid ? [] : [bare]
+rescue StandardError
+  []
 end
 
 def extract_status(status)
@@ -298,11 +321,7 @@ files.each_with_index do |path, idx|
   year = primary["content"].to_s[/:(\d{4})(?=[^-]*$)/, 1] || published.to_s[0, 4]
 
   canonicals = pubid_canonicals(docid_list, options[:flavor])
-  canonicals.concat(bare_variants(primary["content"].to_s))
-  # 3GPP ids carry release/series suffixes (":REL-19/19.0.0", ":UMTS/3.0.0");
-  # index the bare form too so "3GPP TS 23.040" resolves to the latest release.
-  bare_release = primary["content"].to_s.sub(/\A(3GPP [A-Z]{2} [\d.]+[A-Z]*)(?::[A-Z]+(?:-\d+)?\/.*)?\z/) { Regexp.last_match(1) }
-  canonicals << bare_release if bare_release =~ /\A3GPP / && bare_release != primary["content"]
+  canonicals.concat(bare_variants(primary["content"].to_s, options[:flavor]))
   all_ids = docid_list.map do |d|
     next unless d.is_a?(Hash)
     { norm: d["content"].to_s.upcase.delete(" "), raw: d["content"], type: d["type"] }

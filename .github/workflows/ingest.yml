@@ -1,11 +1,14 @@
 name: ingest
 
 # The v2 producer is the one ingestion path: it walks the flavor's Pages
-# machine index, posts model-JSON chunks to /admin/ingest-v2, and
-# reconciles the flavor (rows the wave never re-stamped are ghosts).
-# The weekly schedule sweeps the fleet serially — parallel heavy legs
-# saturate D1 (CPU-time-limit resets); dataset push dispatches come per
-# flavor from the relaton-data-* repos.
+# machine index, renders the wave as SQLite literals, and loads them with
+# `wrangler d1 execute --remote --file` (server-side batching - per-chunk
+# POST transactions saturated D1's CPU window and the live read path
+# 500'd under the sweep), then imports the reconciler (rows the wave
+# never re-stamped are ghosts) and verifies the flavor row went fresh
+# (the import-tail canary). The weekly schedule sweeps the fleet serially
+# - parallel heavy legs still saturate D1; dataset push dispatches come
+# per flavor from the relaton-data-* repos.
 
 on:
   schedule:
@@ -106,31 +109,89 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Ingest into storage v2
+      - name: Clone the data repo for dataset reads
+        run: git clone --depth 1 --single-branch "https://github.com/relaton/relaton-data-${{ matrix.flavor }}" data-clone
+      - name: Dump the flavor's machine index to SQL
+        id: dump
         env:
-          ADMIN_TOKEN: ${{ secrets.CLOUDFLARE_ADMIN_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
           LIMIT: ${{ inputs.limit }}
           FROM_CHUNK: ${{ inputs.v2_from_chunk }}
         run: |
+          echo "before=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           args=""
           [ -n "$LIMIT" ] && args="$args --limit $LIMIT"
           [ -n "$FROM_CHUNK" ] && args="$args --from-chunk $FROM_CHUNK"
           node packages/relaton-api/bin/relaton-api.mjs ingest ${{ matrix.flavor }} \
-            --v2 --base https://api.relaton.org --token-env ADMIN_TOKEN $args
+            --v2 --dump-sql bulk-sql/ --data-clone data-clone $args
+      # Imports, not chunked POSTs: d1 execute uploads the file and runs it
+      # server-side with statement batching - per-chunk POST transactions
+      # saturate D1's CPU window and the live read path 500s under the
+      # sweep (D1_ERROR overload, contract checks 2026-11-13/14).
+      - name: Import the data files
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+          flavor="${{ matrix.flavor }}"
+          import_one() {
+            f="$1"
+            for attempt in 1 2 3; do
+              echo "importing $f (attempt $attempt)"
+              if npx wrangler@4 d1 execute api-relaton-org --remote --file="$f" --yes; then
+                return 0
+              fi
+              echo "import of $f failed, waiting 60s before retry"
+              sleep 60
+            done
+            echo "import of $f failed after 3 attempts"
+            return 1
+          }
+          import_one "bulk-sql/${flavor}.sql"
+          i=2
+          while [ -f "bulk-sql/${flavor}-${i}.sql" ]; do
+            import_one "bulk-sql/${flavor}-${i}.sql"
+            i=$((i+1))
+          done
+      - name: Verify the flavor row is fresh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -e
+          flavor="${{ matrix.flavor }}"
+          before="${{ steps.dump.outputs.before }}"
+          indexed=$(npx wrangler@4 d1 execute api-relaton-org --remote \
+            --command "SELECT indexed_at FROM flavors_v2 WHERE flavor='${flavor}'" \
+            --json | jq -r '.[0].results[0].indexed_at')
+          indexed_norm="${indexed%%.*}"
+          case "$indexed_norm" in *Z) ;; *) indexed_norm="${indexed_norm}Z";; esac
+          echo "indexed_at=$indexed (normalized $indexed_norm; wave started $before)"
+          if [ -z "$indexed" ] || [ "$indexed" == "null" ] || [[ "$indexed_norm" < "$before" ]]; then
+            echo "flavors_v2.indexed_at for ${flavor} is stale — the import tail was lost"
+            exit 1
+          fi
       # Only a full (unsharded) wave reconciles: a limited shard leaves the
       # rest of the flavor's rows un-stamped, and deleting them would be
       # worse than keeping the ghosts another cycle.
-      - name: Reconcile the flavor
+      - name: Import the reconciler
         if: inputs.limit == '' && inputs.v2_from_chunk == ''
         env:
-          ADMIN_TOKEN: ${{ secrets.CLOUDFLARE_ADMIN_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          echo "reconciling ${{ matrix.flavor }} (before ${{ github.run_started_at }})"
-          curl -sf -X POST "https://api.relaton.org/admin/reconcile-v2/${{ matrix.flavor }}" \
-            -H "Authorization: Bearer $ADMIN_TOKEN" \
-            -H "content-type: application/json" \
-            -d "{\"before\": \"${{ github.run_started_at }}\"}" | jq -c .
+          set -e
+          rec="bulk-sql/${{ matrix.flavor }}-reconcile.sql"
+          for attempt in 1 2 3; do
+            echo "importing $rec (attempt $attempt)"
+            if npx wrangler@4 d1 execute api-relaton-org --remote --file="$rec" --yes; then
+              exit 0
+            fi
+            echo "import of $rec failed, waiting 60s before retry"
+            sleep 60
+          done
+          echo "import of $rec failed after 3 attempts"
+          exit 1
 
   # One relaton-data-* slice, dispatched by that dataset's own push workflow.
   ingest-dispatch:
@@ -144,20 +205,79 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Ingest into storage v2
+      - name: Clone the data repo for dataset reads
         env:
-          ADMIN_TOKEN: ${{ secrets.CLOUDFLARE_ADMIN_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
+          FLAVOR: ${{ github.event.client_payload.flavor }}
+        run: git clone --depth 1 --single-branch "https://github.com/relaton/relaton-data-$FLAVOR" data-clone
+      - name: Dump the flavor's machine index to SQL
+        id: dump
+        env:
           FLAVOR: ${{ github.event.client_payload.flavor }}
         run: |
+          echo "before=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
           node packages/relaton-api/bin/relaton-api.mjs ingest "$FLAVOR" \
-            --v2 --base https://api.relaton.org --token-env ADMIN_TOKEN
-      - name: Reconcile the flavor
+            --v2 --dump-sql bulk-sql/ --data-clone data-clone
+      - name: Import the data files
         env:
-          ADMIN_TOKEN: ${{ secrets.CLOUDFLARE_ADMIN_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           FLAVOR: ${{ github.event.client_payload.flavor }}
         run: |
-          curl -sf -X POST "https://api.relaton.org/admin/reconcile-v2/$FLAVOR" \
-            -H "Authorization: Bearer $ADMIN_TOKEN" \
-            -H "content-type: application/json" \
-            -d "{\"before\": \"${{ github.run_started_at }}\"}" | jq -c .
+          set -e
+          flavor="$FLAVOR"
+          import_one() {
+            f="$1"
+            for attempt in 1 2 3; do
+              echo "importing $f (attempt $attempt)"
+              if npx wrangler@4 d1 execute api-relaton-org --remote --file="$f" --yes; then
+                return 0
+              fi
+              echo "import of $f failed, waiting 60s before retry"
+              sleep 60
+            done
+            echo "import of $f failed after 3 attempts"
+            return 1
+          }
+          import_one "bulk-sql/${flavor}.sql"
+          i=2
+          while [ -f "bulk-sql/${flavor}-${i}.sql" ]; do
+            import_one "bulk-sql/${flavor}-${i}.sql"
+            i=$((i+1))
+          done
+      - name: Verify the flavor row is fresh
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FLAVOR: ${{ github.event.client_payload.flavor }}
+        run: |
+          set -e
+          flavor="$FLAVOR"
+          before="${{ steps.dump.outputs.before }}"
+          indexed=$(npx wrangler@4 d1 execute api-relaton-org --remote \
+            --command "SELECT indexed_at FROM flavors_v2 WHERE flavor='${flavor}'" \
+            --json | jq -r '.[0].results[0].indexed_at')
+          indexed_norm="${indexed%%.*}"
+          case "$indexed_norm" in *Z) ;; *) indexed_norm="${indexed_norm}Z";; esac
+          echo "indexed_at=$indexed (normalized $indexed_norm; wave started $before)"
+          if [ -z "$indexed" ] || [ "$indexed" == "null" ] || [[ "$indexed_norm" < "$before" ]]; then
+            echo "flavors_v2.indexed_at for ${flavor} is stale — the import tail was lost"
+            exit 1
+          fi
+      - name: Import the reconciler
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          FLAVOR: ${{ github.event.client_payload.flavor }}
+        run: |
+          set -e
+          rec="bulk-sql/$FLAVOR-reconcile.sql"
+          for attempt in 1 2 3; do
+            echo "importing $rec (attempt $attempt)"
+            if npx wrangler@4 d1 execute api-relaton-org --remote --file="$rec" --yes; then
+              exit 0
+            fi
+            echo "import of $rec failed, waiting 60s before retry"
+            sleep 60
+          done
+          echo "import of $rec failed after 3 attempts"
+          exit 1

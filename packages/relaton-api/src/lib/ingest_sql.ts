@@ -215,11 +215,16 @@ export function bulkTriggerDropStatements(): SqlStatement[] {
     `DROP TRIGGER IF EXISTS documents_search_fts_ai`,
     `DROP TRIGGER IF EXISTS documents_search_fts_ad`,
     `DROP TRIGGER IF EXISTS documents_search_fts_au`,
+    `DROP TRIGGER IF EXISTS documents_search_trigram_ai`,
+    `DROP TRIGGER IF EXISTS documents_search_trigram_ad`,
+    `DROP TRIGGER IF EXISTS documents_search_trigram_au`,
   ].map((sql) => ({ sql, binds: [] }));
 }
 
 export function bulkTriggerRestoreStatements(): SqlStatement[] {
   return [
+    // 0013's trigram sync triggers (same drop/restore/rebuild cycle as the
+    // FTS5 ones above).
     {
       sql: `CREATE TRIGGER IF NOT EXISTS documents_search_fts_ai AFTER INSERT ON documents_search BEGIN
   INSERT INTO documents_search_fts(rowid, docid, title, abstract)
@@ -247,6 +252,39 @@ END`,
     // content table (documents_search), which the data files just landed.
     {
       sql: `INSERT INTO documents_search_fts(documents_search_fts) VALUES('rebuild')`,
+      binds: [],
+    },
+    {
+      sql: `CREATE TRIGGER IF NOT EXISTS documents_search_trigram_ai AFTER INSERT ON documents_search BEGIN
+  INSERT INTO documents_search_trigram(rowid, docid, title, norm)
+  VALUES (new.rowid, new.docid, new.title, new.norm);
+END`,
+      binds: [],
+    },
+    {
+      sql: `CREATE TRIGGER IF NOT EXISTS documents_search_trigram_ad AFTER DELETE ON documents_search BEGIN
+  INSERT INTO documents_search_trigram(documents_search_trigram, rowid, docid, title, norm)
+  VALUES ('delete', old.rowid, old.docid, old.title, old.norm);
+END`,
+      binds: [],
+    },
+    {
+      sql: `CREATE TRIGGER IF NOT EXISTS documents_search_trigram_au AFTER UPDATE OF docid, title, norm ON documents_search BEGIN
+  INSERT INTO documents_search_trigram(documents_search_trigram, rowid, docid, title, norm)
+  VALUES ('delete', old.rowid, old.docid, old.title, old.norm);
+  INSERT INTO documents_search_trigram(rowid, docid, title, norm)
+  VALUES (new.rowid, new.docid, new.title, new.norm);
+END`,
+      binds: [],
+    },
+    // External-content FTS5: the index is rebuilt wholesale from the
+    // content table (documents_search), which the data files just landed.
+    {
+      sql: `INSERT INTO documents_search_fts(documents_search_fts) VALUES('rebuild')`,
+      binds: [],
+    },
+    {
+      sql: `INSERT INTO documents_search_trigram(documents_search_trigram) VALUES('rebuild')`,
       binds: [],
     },
   ];

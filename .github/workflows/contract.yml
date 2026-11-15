@@ -21,7 +21,7 @@ on:
     # 2026-11-13/15 D1-overload bursts ran ~48h before anyone ran the
     # fixtures by hand, and hourly is what gives burst-granularity
     # detection (the run is ~1 minute of fixtures).
-    - cron: "0 * * * *"
+    - cron: "37 * * * *"
   workflow_call:
     inputs:
       base_url:

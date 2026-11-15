@@ -32,6 +32,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   fixtures:
@@ -42,6 +43,63 @@ jobs:
         with:
           node-version: 22
       - name: Run the contract fixtures
+        id: run
         env:
           RELATON_API_BASE_URL: ${{ inputs.base_url || 'https://api.relaton.org' }}
-        run: node packages/relaton-api/contract/run.mjs
+        run: node packages/relaton-api/contract/run.mjs | tee contract-output.txt
+      # The alerting layer (relaton-api-js#166): a red run opens/updates one
+      # tracking issue - GitHub issues are the incident log, no external
+      # dashboard - and a green run closes it.
+      - name: Open or update the red-contract tracking issue
+        if: failure() && inputs.base_url == '' && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          fails=$(grep -E "^FAIL " contract-output.txt | head -20 || true)
+          [ -n "$fails" ] || fails="(fixtures runner failed - see the run log)"
+          body=$(jq -n --arg run "$RUN_URL" --arg fails "$fails" '
+            {title: "fleet contract: red", body: ("The hourly contract run against api.relaton.org is failing.\n\nRun: " + $run + "\n\nFailing fixtures:\n\n" + $fails + "\n\nThis issue is maintained by the hourly contract run - it closes itself when the suite goes green.")}')
+          existing=$(gh issue list -R relaton/relaton-api-js --search "fleet contract: red in:title" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R relaton/relaton-api-js --body "$body" >/dev/null
+          else
+            jq -r '.title' <<< "$body" | gh issue create -R relaton/relaton-api-js --title-file - --body-file <(jq -r '.body' <<< "$body") >/dev/null
+          fi
+      - name: Close the red-contract tracking issue
+        if: success() && inputs.base_url == '' && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          existing=$(gh issue list -R relaton/relaton-api-js --search "fleet contract: red in:title" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+          [ -n "$existing" ] && gh issue close "$existing" -R relaton/relaton-api-js --comment "Contract suite green - closing." >/dev/null || true
+
+  # The freshness census (relaton-api-js#166): every flavor's indexed_at is
+  # the freshness SLA - the weekly sweep is the only thing that should move
+  # it, so anything older than ~a week plus slack missed its wave. One
+  # tracking issue lists stale flavors and self-closes when the fleet is
+  # fresh again.
+  census:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Flag flavors past the freshness SLA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          cutoff=$(date -u -d "-8 days" +%Y-%m-%dT%H:%M:%SZ)
+          stale=$(curl -sf "https://api.relaton.org/v3/flavors" | jq -r --arg cutoff "$cutoff" '
+            [.flavors[] | select((.indexed_at // "") < $cutoff) |
+             "\(.flavor): indexed \(.indexed_at // "never)"]' | sort)
+          existing=$(gh issue list -R relaton/relaton-api-js --search "fleet census: stale flavors in:title" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+          if [ -z "$stale" ]; then
+            [ -n "$existing" ] && gh issue close "$existing" -R relaton/relaton-api-js --comment "Fleet fresh - every flavor indexed within the SLA. Closing." >/dev/null || true
+            exit 0
+          fi
+          body=$(jq -n --arg list "$stale" '{title: "fleet census: stale flavors", body: ("Flavors past the freshness SLA (indexed_at older than 8 days):\n\n" + $list + "\n\nMaintained by the hourly census - closes when the fleet is fresh.")}')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R relaton/relaton-api-js --body "$(jq -r '.body' <<< "$body")" >/dev/null
+          else
+            gh issue create -R relaton/relaton-api-js --title "fleet census: stale flavors" --body "$(jq -r '.body' <<< "$body")" >/dev/null
+          fi

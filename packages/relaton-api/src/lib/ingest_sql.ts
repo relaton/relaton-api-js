@@ -277,8 +277,16 @@ END`,
 END`,
       binds: [],
     },
-    // External-content FTS5: the index is rebuilt wholesale from the
-    // content table (documents_search), which the data files just landed.
+  ];
+}
+
+// The whole-table rebuilds, each its OWN import: a rebuild approaches the
+// per-import CPU budget alone, so it must never share a file with anything
+// (the 2026-11-15 iho leg stacked 80 rounds + both rebuilds in one file -
+// the cumulative CPU bust corrupted the trigram table mid-rebuild;
+// standalone, each rebuild fits). One file per rebuild.
+export function bulkIndexRebuildStatements(): SqlStatement[] {
+  return [
     {
       sql: `INSERT INTO documents_search_fts(documents_search_fts) VALUES('rebuild')`,
       binds: [],

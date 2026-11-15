@@ -173,10 +173,26 @@ function sqliteLiteral(v) {
 // ride a separate file so the workflow imports them only after a full wave.
 async function dumpSqlV2(flavor, values, outDir) {
   const { produceV2Chunks } = await import("../src/ingest/produce.ts");
-  const { buildIngestStatements, buildReconcileStatements, bulkTriggerDropStatements, bulkTriggerRestoreStatements } = await import("../src/lib/ingest_sql.ts");
+  const { buildIngestStatements, buildReconcileStatements, bulkTriggerDropStatements, bulkTriggerRestoreStatements, bulkIndexRebuildStatements } = await import("../src/lib/ingest_sql.ts");
   const fs = await import("node:fs");
   fs.mkdirSync(outDir, { recursive: true });
   const before = new Date().toISOString();
+
+  // The FTS bypass (trigger drops + whole-table rebuilds) costs a
+  // corpus-class CPU budget on both ends; a small wave gets none - its
+  // per-row trigger maintenance is cheap at that scale, and the triggers
+  // the last corpus wave restored keep its rows indexed. The manifest's
+  // row count decides (the 2026-11-15 iho leg stacked the rebuilds into
+  // one import and CPU-corrupted the trigram table mid-rebuild; the
+  // rebuilds now land as standalone per-budget files).
+  let corpus = true;
+  try {
+    const manifest = await fetch(`${values.pages ?? `https://relaton.github.io/relaton-data-${flavor}`}/index/manifest.json`).then((r) => r.json());
+    corpus = (manifest.count ?? Infinity) >= 10_000;
+    console.log(`${flavor}: manifest count=${manifest.count ?? "?"} -> ${corpus ? "corpus wave (FTS bypass)" : "small wave (per-row triggers)"}`);
+  } catch {
+    console.log(`${flavor}: manifest unreachable - assuming corpus wave`);
+  }
 
   // With --data-clone, dataset reads come off a local clone of the data
   // repo instead of raw.githubusercontent: an 80k-dataset walk over HTTP
@@ -231,8 +247,10 @@ async function dumpSqlV2(flavor, values, outDir) {
 
   // FTS triggers off for the whole import (see bulkTriggerDropStatements):
   // their per-row FTS5 maintenance stalls the import stream by the tail of
-  // a corpus-class file and wrangler silently drops the rest.
-  writeStmts(bulkTriggerDropStatements());
+  // a corpus-class file and wrangler silently drops the rest. Small waves
+  // skip the bypass entirely - per-row maintenance is cheap at that scale,
+  // and the last corpus wave's restore keeps the triggers in place.
+  if (corpus) writeStmts(bulkTriggerDropStatements());
 
   let failedChunk = 0;
   let failedCount = 0;
@@ -271,13 +289,24 @@ async function dumpSqlV2(flavor, values, outDir) {
   }
   // The reconcile for a full wave, as its own file: imported only after the
   // data files, it deletes the ghosts the refreshed index left behind,
-  // restores the FTS triggers the dump dropped, and rebuilds the FTS
-  // index wholesale from the content table.
+  // deletes the ghosts the refreshed index left behind. Corpus waves
+  // additionally emit the index-maintenance files - trigger restore and
+  // the two whole-table rebuilds - each its OWN import file, because a
+  // rebuild approaches the per-import CPU budget alone and must never
+  // share one (the 2026-11-15 iho leg stacked them and CPU-corrupted the
+  // trigram table mid-rebuild). Small waves touch no triggers at all.
   const rec = fs.createWriteStream(`${outDir}/${flavor}-reconcile.sql`);
-  const recStmts = [
-    ...buildReconcileStatements(flavor, before),
-    ...bulkTriggerRestoreStatements(),
-  ];
+  const recStmts = [...buildReconcileStatements(flavor, before)];
+  const writeSqlFile = (name, stmts) => {
+    const out2 = fs.createWriteStream(`${outDir}/${name}`);
+    for (const st of stmts) {
+      const rendered = /\?\d/.test(st.sql)
+        ? st.sql.replace(/\?(\d+)/g, (_, n) => sqliteLiteral(st.binds[Number(n) - 1]))
+        : st.sql.replace(/\?/g, () => sqliteLiteral(st.binds.shift()));
+      out2.write(`${rendered.endsWith(";") ? rendered : `${rendered};`}\n`);
+    }
+    out2.end();
+  };
   for (const st of recStmts) {
     const rendered = /\?\d/.test(st.sql)
       ? st.sql.replace(/\?(\d+)/g, (_, n) => sqliteLiteral(st.binds[Number(n) - 1]))
@@ -286,6 +315,11 @@ async function dumpSqlV2(flavor, values, outDir) {
   }
   rec.end();
   await new Promise((resolve) => rec.on("close", resolve));
+  if (corpus) {
+    writeSqlFile(`${flavor}-restore.sql`, bulkTriggerRestoreStatements());
+    writeSqlFile(`${flavor}-rebuild-fts.sql`, bulkIndexRebuildStatements().filter((st) => st.sql.includes("documents_search_fts(")));
+    writeSqlFile(`${flavor}-rebuild-trigram.sql`, bulkIndexRebuildStatements().filter((st) => st.sql.includes("documents_search_trigram(")));
+  }
 
   console.log(`${flavor}: dumped ${rows} rows across ${chunks} chunks into ${outDir}/${flavor}.sql(-2,-3,…)`);
   console.log(`${flavor}: import with (numeric order — a glob sorts iso-10 before iso-2 and iso.sql last, which FK-fails):`);

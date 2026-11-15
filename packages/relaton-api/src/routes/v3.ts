@@ -165,6 +165,22 @@ const chainRoute = createRoute({
   },
 });
 
+const facetsRoute = createRoute({
+  method: "get",
+  path: "/v3/documents/facets",
+  request: {
+    query: z.object({
+      q: z.string().optional(),
+      flavor: z.string().optional(),
+      year: z.coerce.number().int().optional(),
+      doctype: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: { description: "Per-field value counts for the current query — the drill-down filters", content: { "application/json": { schema: z.any() } } },
+  },
+});
+
 export const v3Routes = new OpenAPIHono<AppEnv>();
 
 function decodeCursor(raw: string | undefined): string | null {
@@ -179,6 +195,32 @@ function decodeCursor(raw: string | undefined): string | null {
 function encodeCursor(key: string): string {
   return btoa(key).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
+
+v3Routes.openapi(facetsRoute, async (c) => {
+  const q = c.req.valid("query");
+  const conditions: string[] = [];
+  const binds: (string | number)[] = [];
+  const bind = (v: string | number): string => `?${binds.push(v)}`;
+  if (q.flavor) conditions.push(`flavor = ${bind(q.flavor)}`);
+  if (q.year) conditions.push(`year = ${bind(q.year)}`);
+  if (q.doctype) conditions.push(`doctype = ${bind(q.doctype)}`);
+  if (q.q) conditions.push(`(title LIKE ${bind(`%${q.q}%`)} OR docid LIKE ${bind(`%${q.q}%`)})`);
+  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const withWhere = conditions.length ? `${where} AND` : "WHERE";
+  const facetOf = async (column: string) =>
+    (await c.env.DB.prepare(
+      `SELECT ${column} AS value, COUNT(*) AS n FROM documents_search ${withWhere} ${column} IS NOT NULL GROUP BY ${column} ORDER BY n DESC LIMIT 15`,
+    ).bind(...binds).all<{ value: string | number; n: number }>()).results ?? [];
+  const [publisher, doctype, flavor, years] = await Promise.all([
+    facetOf("publisher"),
+    facetOf("doctype"),
+    facetOf("flavor"),
+    facetOf("year"),
+  ]);
+  return c.json({
+    facets: { publisher, doctype, flavor, year: years },
+  });
+});
 
 v3Routes.openapi(keyRoute, async (c) => {
   const { key } = c.req.valid("param");
@@ -296,6 +338,29 @@ v3Routes.openapi(collectionRoute, async (c) => {
     api: `/v3/documents/${encodeURIComponent(r.key)}`,
   }));
 
+  // The identifier-grade fuzzy lane (#165): identifier queries are short,
+  // structured, and typo-prone. When the LIKE lanes come back sparse, the
+  // trigram index serves indexed substring/ranked hits (with match
+  // highlights) deduped below the exact hits, so it never pollutes them.
+  let fuzzy: { key: string; flavor: string; docid: string; title: string | null; highlight: string }[] = [];
+  if (q.q && q.q.length >= 3 && items.length < limit) {
+    const matches = await c.env.DB.prepare(
+      `SELECT s.key, s.flavor, s.docid, s.title,
+              snippet(documents_search_trigram, -1, '<mark>', '</mark>', '…', 12) AS highlight
+       FROM documents_search_trigram t
+       JOIN documents_search s ON s.rowid = t.rowid
+       WHERE documents_search_trigram MATCH ?
+       ORDER BY rank LIMIT ?`,
+    ).bind(q.q, limit * 2).all<{
+      key: string; flavor: string; docid: string; title: string; highlight: string;
+    }>();
+    const seen = new Set(items.map((i) => i.key));
+    fuzzy = (matches.results ?? [])
+      .filter((m) => !seen.has(m.key))
+      .slice(0, limit)
+      .map((m) => ({ key: m.key, flavor: m.flavor, docid: m.docid, title: m.title, highlight: m.highlight }));
+  }
+
   const headers: Record<string, string> = {};
   if (hasMore && page.length) {
     const next = new URL(c.req.url);
@@ -303,7 +368,11 @@ v3Routes.openapi(collectionRoute, async (c) => {
     next.searchParams.set("limit", String(limit));
     headers.Link = `<${next.pathname}${next.search}>; rel="next"`;
   }
-  return c.json({ items, next_cursor: hasMore ? encodeCursor(page[page.length - 1]!.key) : null }, 200, headers);
+  return c.json(
+    { items, fuzzy_hits: fuzzy, next_cursor: hasMore ? encodeCursor(page[page.length - 1]!.key) : null },
+    200,
+    headers,
+  );
 });
 
 v3Routes.openapi(flavorsRoute, async (c) => {

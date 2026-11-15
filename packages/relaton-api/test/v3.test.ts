@@ -4,6 +4,7 @@ import schemaSql from "../migrations/0001_init.sql?raw";
 import storageV2Sql from "../migrations/0007_storage_v2.sql?raw";
 import searchV2Sql from "../migrations/0009_documents_search.sql?raw";
 import dropV1Sql from "../migrations/0010_drop_v1_tables.sql?raw";
+import trigramSql from "../migrations/0013_documents_search_trigram.sql?raw";
 import { splitSqlStatements } from "./split-sql";
 
 // API v3 (TODO.api/03) over storage v2: seeded through the ingest-v2 admin
@@ -49,7 +50,7 @@ async function seed() {
 }
 
 beforeAll(async () => {
-  for (const sql of [schemaSql, storageV2Sql, searchV2Sql, dropV1Sql]) {
+  for (const sql of [schemaSql, storageV2Sql, searchV2Sql, dropV1Sql, trigramSql]) {
     const statements = splitSqlStatements(sql);
     await env.DB.batch(statements.map((s) => env.DB.prepare(s)));
   }
@@ -300,5 +301,36 @@ describe("GET /v3/documents/{key}/graph and /v3/citations/{key}/chain", () => {
     expect(keys).toContain("ISO 19115-1 A1:2020");
     expect(keys).toContain("ISO 19115-1:2014");
     expect(keys.indexOf("ISO 19115-1:2014")).toBeLessThan(keys.indexOf("ISO 19115-1 A1:2020"));
+  });
+});
+
+describe("GET /v3/documents (fuzzy lane) and /v3/documents/facets", () => {
+  it("falls back to the trigram lane when the LIKE lanes miss the normalized form", async () => {
+    // "O19115" spans the space that normKey stripped — it lives only inside documents_search.norm (the normalized
+    // lookup token) - the title/identifier LIKE lanes miss it, so the
+    // trigram index serves the hit with its highlight.
+    const res = await SELF.fetch("http://localhost/v3/documents?q=O19115&limit=5");
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.items.length).toBeLessThan(2);
+    const hit = body.fuzzy_hits.find((h: any) => h.key === "ISO 19115-1:2014");
+    expect(hit).toBeTruthy();
+    expect(hit.highlight).toContain("<mark>");
+  });
+
+  it("answers facets for the current query", async () => {
+    const res = await SELF.fetch("http://localhost/v3/documents/facets");
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const years = body.facets.year.map((y: any) => y.value);
+    expect(years).toContain(2014);
+    expect(years).toContain(2018);
+  });
+
+  it("scopes facets by flavor", async () => {
+    const res = await SELF.fetch("http://localhost/v3/documents/facets?flavor=iso");
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.facets.flavor.every((f: any) => f.value === "iso")).toBe(true);
   });
 });

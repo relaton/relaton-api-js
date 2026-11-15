@@ -137,6 +137,34 @@ const versionRoute = createRoute({
   },
 });
 
+const graphRoute = createRoute({
+  method: "get",
+  path: "/v3/documents/{key}/graph",
+  request: {
+    params: z.object({ key: z.string().min(1) }),
+    query: z.object({
+      depth: z.coerce.number().int().min(1).max(4).optional(),
+      types: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: { description: "The relation graph around the document: nodes (resolved documents and external targets) and typed edges", content: { "application/json": { schema: z.any() } } },
+    404: { description: "Unknown key", content: { "application/problem+json": { schema: z.any() } } },
+  },
+});
+
+const chainRoute = createRoute({
+  method: "get",
+  path: "/v3/citations/{key}/chain",
+  request: {
+    params: z.object({ key: z.string().min(1) }),
+  },
+  responses: {
+    200: { description: "The edition chain: the document, its ancestors and its descendants along the structural relation types, date-ordered", content: { "application/json": { schema: z.any() } } },
+    404: { description: "Unknown key", content: { "application/problem+json": { schema: z.any() } } },
+  },
+});
+
 export const v3Routes = new OpenAPIHono<AppEnv>();
 
 function decodeCursor(raw: string | undefined): string | null {
@@ -289,4 +317,149 @@ v3Routes.openapi(versionRoute, async (c) => {
   const release = c.env.API_VERSION ?? "dev";
   const relaton = (await c.env.DB.prepare(`SELECT value FROM meta WHERE key = 'relaton_version'`).first<{ value: string }>())?.value ?? "data-repos";
   return c.json({ release, relaton });
+});
+
+
+// --- citation graph ----------------------------------------------------
+
+// The structural relation types that carry edition semantics. The cites
+// family is noise for a graph walk.
+const STRUCTURAL_TYPES = ["amends", "updates", "corrigends", "adoptedFrom", "derivedFrom"];
+
+type GraphNode = { key: string; flavor: string; docid: string; title: string | null; year: number | null };
+type GraphEdge = { from: string; type: string; to: string; external?: boolean };
+
+async function resolveDocids(db: D1Database, keys: string[], docids: string[]): Promise<Map<string, GraphNode>> {
+  const out = new Map<string, GraphNode>();
+  const keyList = keys.filter((k) => k.length > 0);
+  const docidList = docids.filter((d) => d.length > 0);
+  if (!keyList.length && !docidList.length) return out;
+  const keyBind = keyList.map(() => "?").join(",");
+  const docidBind = docidList.map(() => "?").join(",");
+  const where = [
+    ...keyList.map(() => "key = ?"),
+    ...docidList.map(() => "docid = ?"),
+  ].join(" OR ");
+  const binds = [...keyList, ...docidList];
+  const res = await db.prepare(`SELECT key, flavor, docid, title, year FROM documents_search WHERE ${where}`).bind(...binds).all<{
+    key: string; flavor: string; docid: string; title: string; year: number | null;
+  }>();
+  for (const r of res.results ?? []) {
+    out.set(r.key, { key: r.key, flavor: r.flavor, docid: r.docid ?? "", title: r.title, year: r.year });
+    if (r.docid) out.set(r.docid, out.get(r.key)!);
+  }
+  return out;
+}
+
+async function walkGraph(
+  db: D1Database,
+  rootKey: string,
+  rootDocid: string,
+  depth: number,
+  types: string[] | null,
+): Promise<{ nodes: GraphNode[]; edges: GraphEdge[]; externals: string[] }> {
+  const nodes = new Map<string, GraphNode>();
+  const edges = new Map<string, GraphEdge>();
+  const externals = new Set<string>();
+  const visited = new Set<string>([rootKey]);
+  let frontier: { key: string; docid: string }[] = [{ key: rootKey, docid: rootDocid }];
+
+  for (let level = 0; level < depth && frontier.length; level++) {
+    const statements = frontier.map((f) => {
+      const stmts = [
+        db.prepare("SELECT type, target FROM relations WHERE document = ?").bind(f.key),
+      ];
+      if (f.docid) stmts.push(db.prepare("SELECT document, type FROM relations WHERE target = ?").bind(f.docid));
+      return stmts;
+    }).flat();
+    const results = await db.batch(statements);
+
+    const nextKeys: string[] = [];
+    const nextDocids: string[] = [];
+    frontier.forEach((f, i) => {
+      const out = results[i * 2]?.results as { type: string; target: string }[] | undefined;
+      const inc = results[i * 2 + 1]?.results as { document: string; type: string }[] | undefined;
+      for (const r of out ?? []) {
+        if (types && !types.includes(r.type)) continue;
+        if (!r.target) continue;
+        const edgeKey = `${f.key}|${r.type}|${r.target}`;
+        if (!edges.has(edgeKey)) edges.set(edgeKey, { from: f.key, type: r.type, to: r.target });
+        nextKeys.push(r.target);
+        nextDocids.push(r.target);
+      }
+      for (const r of inc ?? []) {
+        if (types && !types.includes(r.type)) continue;
+        const edgeKey = `${r.document}|${r.type}|${f.key}`;
+        if (!edges.has(edgeKey)) edges.set(edgeKey, { from: r.document, type: r.type, to: f.key });
+        nextKeys.push(r.document);
+      }
+    });
+
+    const fresh = nextKeys.filter((k) => !visited.has(k));
+    const resolved = await resolveDocids(db, [...new Set([...fresh, ...nextDocids])], [...new Set(nextDocids)]);
+    for (const [anchor, node] of resolved) {
+      if (!nodes.has(anchor)) nodes.set(anchor, node);
+      if (!nodes.has(node.key)) nodes.set(node.key, node);
+    }
+    frontier = [];
+    for (const k of fresh) {
+      const node = resolved.get(k) ?? resolved.get([...resolved.keys()].find((a) => resolved.get(a)!.key === k) ?? "");
+      if (!node) {
+        // a target that resolves to no stored document: an external reference
+        externals.add(k);
+        continue;
+      }
+      if (visited.has(node.key)) continue;
+      visited.add(node.key);
+      frontier.push({ key: node.key, docid: node.docid });
+    }
+  }
+  return { nodes: [...nodes.values()].filter((n, i, all) => all.findIndex((m) => m.key === n.key) === i), edges: [...edges.values()], externals: [...externals] };
+}
+
+v3Routes.openapi(graphRoute, async (c) => {
+  const { key } = c.req.valid("param");
+  const { depth, types } = c.req.valid("query");
+  const keyText = decodeURIComponent(key);
+  const doc = (await getDocument(c.env.DB, keyText))
+    ?? (await getDocumentByLookupKey(c.env.DB, normKey(keyText)))
+    ?? (await getDocumentByDocid(c.env.DB, keyText));
+  if (!doc) return problem(c, 404, "Not Found", `unknown key ${keyText}`);
+
+  const docid = (await c.env.DB.prepare(
+    "SELECT docid FROM documents_search WHERE key = ?",
+  ).bind(doc.key).first<{ docid: string }>())?.docid ?? "";
+
+  const typeList = types ? types.split(",").map((t) => t.trim()).filter(Boolean) : null;
+  const graph = await walkGraph(c.env.DB, doc.key, docid, depth ?? 2, typeList);
+  return c.json({
+    root: { key: doc.key, flavor: doc.flavor },
+    depth: depth ?? 2,
+    nodes: graph.nodes,
+    edges: graph.edges,
+    external: graph.externals,
+  });
+});
+
+v3Routes.openapi(chainRoute, async (c) => {
+  const { key } = c.req.valid("param");
+  const keyText = decodeURIComponent(key);
+  const doc = (await getDocument(c.env.DB, keyText))
+    ?? (await getDocumentByLookupKey(c.env.DB, normKey(keyText)))
+    ?? (await getDocumentByDocid(c.env.DB, keyText));
+  if (!doc) return problem(c, 404, "Not Found", `unknown key ${keyText}`);
+
+  const docid = (await c.env.DB.prepare(
+    "SELECT docid FROM documents_search WHERE key = ?",
+  ).bind(doc.key).first<{ docid: string }>())?.docid ?? "";
+
+  const graph = await walkGraph(c.env.DB, doc.key, docid, 4, ["amends", "updates", "corrigends"]);
+  const seen = new Set<string>();
+  const chain = [
+    { key: doc.key, docid, year: null },
+    ...graph.nodes
+      .filter((n) => !seen.has(n.key) && seen.add(n.key))
+      .map((n) => ({ key: n.key, docid: n.docid, year: n.year })),
+  ].sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
+  return c.json({ root: { key: doc.key }, chain });
 });

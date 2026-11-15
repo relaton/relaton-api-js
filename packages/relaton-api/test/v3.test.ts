@@ -231,3 +231,74 @@ describe("GET /v3/flavors and /v3/version", () => {
     expect(versionBody.release).toBeTruthy();
   });
 });
+
+describe("GET /v3/documents/{key}/graph and /v3/citations/{key}/chain", () => {
+  beforeAll(async () => {
+    // an amendment that declares its base by primary docid: projectRelations
+    // stores the target as the base's docidentifier content, which is what
+    // the graph walk's incoming edge query matches against.
+    await SELF.fetch("http://localhost/admin/ingest-v2/iso", auth({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        flavor: "iso",
+        repo: "relaton/relaton-data-iso",
+        final: true,
+        relatonVersion: "3.0.4",
+        rows: [
+          {
+            key: "ISO 19115-1 A1:2020",
+            file: "data/iso-19115-1-a1-2020.yaml",
+            data: {
+              ...DOC("ISO 19115-1 A1:2020", "2020", "Metadata amendment"),
+              relation: [{ type: "amends", bibitem: { docidentifier: [{ content: "ISO 19115-1:2014", type: "ISO" }] } }],
+            },
+            keys: ["ISO19115-1A1:2020"],
+          },
+        ],
+        blobs: {},
+      }),
+    }));
+  });
+
+  it("walks outgoing relations into resolved nodes", async () => {
+    const res = await SELF.fetch("http://localhost/v3/documents/ISO%2019115-1%20A1%3A2020/graph");
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    expect(body.root.key).toBe("ISO 19115-1 A1:2020");
+    const edge = body.edges.find((e: any) => e.type === "amends");
+    expect(edge.from).toBe("ISO 19115-1 A1:2020");
+    expect(edge.to).toBe("ISO 19115-1:2014");
+    expect(body.nodes.map((n: any) => n.key)).toContain("ISO 19115-1:2014");
+  });
+
+  it("walks incoming relations from the base document", async () => {
+    const res = await SELF.fetch("http://localhost/v3/documents/ISO%2019115-1%3A2014/graph?depth=1");
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const edge = body.edges.find((e: any) => e.type === "amends");
+    expect(edge).toBeTruthy();
+    expect(body.nodes.map((n: any) => n.key)).toContain("ISO 19115-1 A1:2020");
+  });
+
+  it("surfaces targets outside the corpus as external", async () => {
+    const res = await SELF.fetch("http://localhost/v3/documents/ISO%2019115-1%20A1%3A2020/graph?depth=1&types=derivedFrom");
+    const body = await res.json() as any;
+    expect(body.edges).toEqual([]);
+  });
+
+  it("404s an unknown root", async () => {
+    const res = await SELF.fetch("http://localhost/v3/documents/NOPE/graph");
+    expect(res.status).toBe(404);
+  });
+
+  it("chains the edition family date-ordered", async () => {
+    const res = await SELF.fetch("http://localhost/v3/citations/ISO%2019115-1%20A1%3A2020/chain");
+    expect(res.status).toBe(200);
+    const body = await res.json() as any;
+    const keys = body.chain.map((n: any) => n.key);
+    expect(keys).toContain("ISO 19115-1 A1:2020");
+    expect(keys).toContain("ISO 19115-1:2014");
+    expect(keys.indexOf("ISO 19115-1:2014")).toBeLessThan(keys.indexOf("ISO 19115-1 A1:2020"));
+  });
+});

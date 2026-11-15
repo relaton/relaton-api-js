@@ -96,6 +96,14 @@ jobs:
     needs: matrix
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    concurrency:
+      # One lane for every ingestion run: dataset-push dispatches cluster
+      # (a crawl wave lands several pushes together) and stacked imports
+      # saturate D1 - the live read path 500s inside the windows
+      # (D1_ERROR overload; contract checks 2026-11-13/14 and 11-15).
+      # Queued, not cancelled - every flavor's wave still runs.
+      group: ingest-d1
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       # One heavy producer walk at a time: parallel legs saturate D1.
@@ -198,6 +206,14 @@ jobs:
     if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    concurrency:
+      # One lane for every ingestion run: dataset-push dispatches cluster
+      # (a crawl wave lands several pushes together) and stacked imports
+      # saturate D1 - the live read path 500s inside the windows
+      # (D1_ERROR overload; contract checks 2026-11-13/14 and 11-15).
+      # Queued, not cancelled - every flavor's wave still runs.
+      group: ingest-d1
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

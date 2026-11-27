@@ -1,145 +1,180 @@
 {
-  "name": "relaton-api contract fixtures",
-  "version": "2.0.1",
-  "description": "Executable contract (TODO.api/12), v3-only since the /api/v1 cutover: every fixture is a GET against a base URL. Assertions are the stable contract surface only — status, headers, and pinned identifiers — never titles or dates, which drift with the datasets.",
-  "baseUrlEnv": "RELATON_API_BASE_URL",
-  "fixtures": [
-    {
-      "name": "document: RFC 8446 serves by key",
-      "path": "/v3/documents/RFC%208446",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "RFC 8446"
-        ]
-      }
-    },
-    {
-      "name": "document: the STD sub-series key serves its record",
-      "path": "/v3/documents/STD%2086",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json"
-      }
-    },
-    {
-      "name": "document: a release-pinned 3GPP key serves (encoded slash and colon)",
-      "path": "/v3/documents/3GPP%20TR%2000.01U%3AUMTS%2F3.0.0",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "3GPP TR 00.01U"
-        ]
-      }
-    },
-    {
-      "name": "document: the dataset alias spelling of an iana registry resolves",
-      "path": "/v3/documents/IANA%20rpki-signed-objects",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "RPKI Signed Objects"
-        ]
-      }
-    },
-    {
-      "name": "document: a copublished ISO/IEC key serves",
-      "path": "/v3/documents/ISO%2FIEC%2027001",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "ISO/IEC 27001"
-        ]
-      }
-    },
-    {
-      "name": "document: an ETSI versioned key serves",
-      "path": "/v3/documents/ETSI%20EG%20200%20053%20V1.4.1%20(2002-06)",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "ETSI EG 200 053"
-        ]
-      }
-    },
-    {
-      "name": "document: an unknown key is problem+json",
-      "path": "/v3/documents/RFC%20NOTHING",
-      "expect": {
-        "status": 404,
-        "contentType": "application/problem+json"
-      }
-    },
-    {
-      "name": "search: Cyrillic identifiers are queryable",
-      "path": "/v3/documents?q=%D0%93%D0%9E%D0%A1%D0%A2&limit=1",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "\"items\""
-        ]
-      }
-    },
-    {
-      "name": "search: q matches identifiers, not only titles",
-      "path": "/v3/documents?q=19115&flavor=iso&limit=5",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "19115"
-        ]
-      }
-    },
-    {
-      "name": "collection: pages key-ordered with a cursor",
-      "path": "/v3/documents?limit=1",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "\"next_cursor\""
-        ]
-      }
-    },
-    {
-      "name": "negotiation: content negotiation answers yaml",
-      "path": "/v3/documents/RFC%208446",
-      "headers": {
-        "accept": "application/yaml"
-      },
-      "expect": {
-        "status": 200,
-        "contentType": "application/yaml"
-      }
-    },
-    {
-      "name": "flavors: reports per-flavor coverage",
-      "path": "/v3/flavors",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "\"doc_count\""
-        ]
-      }
-    },
-    {
-      "name": "version: the release banner answers",
-      "path": "/v3/version",
-      "expect": {
-        "status": 200,
-        "contentType": "application/json",
-        "bodyContains": [
-          "\"release\""
-        ]
-      }
-    }
-  ]
+ "name": "relaton-api contract fixtures",
+ "version": "2.1.0",
+ "description": "Executable contract (TODO.api/12), v3-only since the /api/v1 cutover: every fixture is a GET against a base URL. Assertions are the stable contract surface only \u2014 status, headers, and pinned identifiers \u2014 never titles or dates, which drift with the datasets.",
+ "baseUrlEnv": "RELATON_API_BASE_URL",
+ "fixtures": [
+  {
+   "name": "document: RFC 8446 serves by key",
+   "path": "/v3/documents/RFC%208446",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "RFC 8446"
+    ]
+   }
+  },
+  {
+   "name": "document: the STD sub-series key serves its record",
+   "path": "/v3/documents/STD%2086",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json"
+   }
+  },
+  {
+   "name": "document: a release-pinned 3GPP key serves (encoded slash and colon)",
+   "path": "/v3/documents/3GPP%20TR%2000.01U%3AUMTS%2F3.0.0",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "3GPP TR 00.01U"
+    ]
+   }
+  },
+  {
+   "name": "document: the dataset alias spelling of an iana registry resolves",
+   "path": "/v3/documents/IANA%20rpki-signed-objects",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "RPKI Signed Objects"
+    ]
+   }
+  },
+  {
+   "name": "document: a copublished ISO/IEC key serves",
+   "path": "/v3/documents/ISO%2FIEC%2027001",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "ISO/IEC 27001"
+    ]
+   }
+  },
+  {
+   "name": "document: an ETSI versioned key serves",
+   "path": "/v3/documents/ETSI%20EG%20200%20053%20V1.4.1%20(2002-06)",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "ETSI EG 200 053"
+    ]
+   }
+  },
+  {
+   "name": "document: an unknown key is problem+json",
+   "path": "/v3/documents/RFC%20NOTHING",
+   "expect": {
+    "status": 404,
+    "contentType": "application/problem+json"
+   }
+  },
+  {
+   "name": "search: Cyrillic identifiers are queryable",
+   "path": "/v3/documents?q=%D0%93%D0%9E%D0%A1%D0%A2&limit=1",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "\"items\""
+    ]
+   }
+  },
+  {
+   "name": "search: q matches identifiers, not only titles",
+   "path": "/v3/documents?q=19115&flavor=iso&limit=5",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "19115"
+    ]
+   }
+  },
+  {
+   "name": "collection: pages key-ordered with a cursor",
+   "path": "/v3/documents?limit=1",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "\"next_cursor\""
+    ]
+   }
+  },
+  {
+   "name": "negotiation: content negotiation answers yaml",
+   "path": "/v3/documents/RFC%208446",
+   "headers": {
+    "accept": "application/yaml"
+   },
+   "expect": {
+    "status": 200,
+    "contentType": "application/yaml"
+   }
+  },
+  {
+   "name": "flavors: reports per-flavor coverage",
+   "path": "/v3/flavors",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "\"doc_count\""
+    ]
+   }
+  },
+  {
+   "name": "version: the release banner answers",
+   "path": "/v3/version",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "\"release\""
+    ]
+   }
+  },
+  {
+   "name": "resolve: dated identifier returns parsed components and ranked candidates",
+   "path": "/v3/resolve?q=ISO%209001%3A2015",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "\"parse_ok\":true",
+     "ISO 9001"
+    ]
+   }
+  },
+  {
+   "name": "resolve: grammar miss answers parse_ok false",
+   "path": "/v3/resolve?q=zzzznotanidentifier",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "\"parse_ok\":false"
+    ]
+   }
+  },
+  {
+   "name": "timeline: edition history from stored relations",
+   "path": "/v3/documents/ISO%209001%3A2015/timeline",
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "bodyContains": [
+     "\"events\"",
+     "\"published\""
+    ]
+   }
+  }
+ ]
 }

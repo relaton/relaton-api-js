@@ -78,12 +78,26 @@ function groupTuples(tuples: unknown[][], maxRows: number): unknown[][][] {
   return groups;
 }
 
-function multiRowUpsert(table: string, columns: string[], pk: string, hold: string[], tuples: unknown[][]): SqlStatement[] {
+// Embedding freshness (issue #179): a documents_search upsert that changes
+// the embedded text (recordText = docid + title + abstract) clears the
+// re-embed cursor, so the next embed-search walk refreshes the vector.
+// SET expressions read the pre-update row, so the comparison sees the old
+// values. Shared by the ingest upsert and /admin/build-search.
+export const EMBED_FRESHNESS_SET = `embedded_at = CASE WHEN documents_search.docid IS excluded.docid
+        AND documents_search.title IS excluded.title
+        AND documents_search.abstract IS excluded.abstract
+      THEN documents_search.embedded_at ELSE NULL END`;
+
+function multiRowUpsert(
+  table: string, columns: string[], pk: string, hold: string[], tuples: unknown[][], extraSet: string[] = [],
+): SqlStatement[] {
   if (!tuples.length) return [];
   const maxRows = Math.max(1, Math.floor(BIND_CAP / columns.length));
   const rowSql = `(${columns.map(() => "?").join(", ")})`;
-  const updateSet = columns.filter((col) => col !== pk && !hold.includes(col))
-    .map((col) => `${col} = excluded.${col}`).join(", ");
+  const updateSet = [
+    ...columns.filter((col) => col !== pk && !hold.includes(col)).map((col) => `${col} = excluded.${col}`),
+    ...extraSet,
+  ].join(", ");
   return groupTuples(tuples, maxRows).map((group) => ({
     sql: `INSERT INTO ${table} (${columns.join(", ")}) VALUES ${group.map(() => rowSql).join(", ")}
            ON CONFLICT (${pk}) DO UPDATE SET ${updateSet}`,
@@ -151,6 +165,7 @@ export function buildIngestStatements(chunk: IngestChunkLike, ingestedAt: string
       return [s.key, s.flavor, s.file, s.docid, s.title, s.year, s.doctype, s.status, s.abstract,
         s.norm, s.undated_norm, s.allparts_norm, s.publisher, s.number, s.part, s.edition];
     }),
+    [EMBED_FRESHNESS_SET],
   ));
 
   stmts.push(...deleteByDocuments("doc_keys", chunkKeys));

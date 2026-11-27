@@ -4,6 +4,8 @@
 // collection/entry/home reads the cloud store needs.
 import { canonicalize, yearOf } from "../pubid/index.ts";
 import { lastPublisherKey, normKey, undatedKey } from "../pubid/keys.ts";
+import { fuseLanes, RANK_CONTRACT, type RankedLanes } from "./rank";
+import { identifierCandidates } from "./resolve";
 
 // Build an FTS5 MATCH string from free text: alphanumeric tokens, prefix
 // matched, ANDed ("ISO 9001" → `iso* AND 9001*`). Returns "" when the
@@ -126,7 +128,7 @@ function buildWhere(
   return { where: clauses.length ? `WHERE ${clauses.join(" AND ")}` : "", bind };
 }
 
-async function facetFor(
+export async function facetFor(
   db: D1Database,
   dimension: string,
   textWhere: { where: string; bind: unknown[] },
@@ -184,6 +186,165 @@ export async function hybridSearch(
     secondary.map((i) => ({ ...i, id: i.key })),
   ).slice(0, size);
   return { ...result, items: fused.map(({ id: _id, ...row }) => row) };
+}
+
+// --- Ranked search (issue #179) -----------------------------------------
+// GET /v3/search under the rank contract (lib/rank, docs/search-rank-
+// contract.md). Every lane reads documents_search with the same filter
+// clause, so a filter never drops out of one lane; the semantic lane
+// cannot filter at query time and is filtered in the hydrate step instead.
+
+export interface RankedParams {
+  q: string;
+  flavor?: string;
+  doctype?: string;
+  status?: string;
+  year?: number | null;
+  /** Default on; the lane still needs the AI + VECTORIZE bindings. */
+  semantic?: boolean;
+  limit: number;
+  offset: number;
+}
+
+export interface RankedHit {
+  key: string;
+  flavor: string;
+  docid: string | null;
+  title: string | null;
+  year: number | null;
+  score: number;
+  pinned: boolean;
+  lanes: RankedLanes;
+  highlight?: string;
+}
+
+export interface RankedResult {
+  items: RankedHit[];
+  /** True when the semantic lane ran and answered. */
+  semantic: boolean;
+  /** Offset of the next page inside the window, or null at its end. */
+  nextOffset: number | null;
+  facets: FacetCountsV2;
+}
+
+interface HydratedRow {
+  key: string;
+  flavor: string;
+  docid: string | null;
+  title: string | null;
+  year: number | null;
+}
+
+// D1 caps a statement at 100 bound parameters.
+const HYDRATE_CHUNK = 80;
+
+function filterClause(p: RankedParams, alias: string): { sql: string; bind: unknown[] } {
+  const parts: string[] = [];
+  const bind: unknown[] = [];
+  if (p.flavor) { parts.push(`${alias}.flavor = ?`); bind.push(p.flavor); }
+  if (p.doctype) { parts.push(`${alias}.doctype = ?`); bind.push(p.doctype); }
+  if (p.status) { parts.push(`${alias}.status = ?`); bind.push(p.status); }
+  if (p.year != null) { parts.push(`${alias}.year = ?`); bind.push(p.year); }
+  return { sql: parts.map((x) => ` AND ${x}`).join(""), bind };
+}
+
+export async function rankedSearch(
+  db: D1Database,
+  env: { AI: Ai; VECTORIZE: VectorizeIndex } | undefined,
+  p: RankedParams,
+): Promise<RankedResult> {
+  const q = p.q.trim();
+  const depth = RANK_CONTRACT.depth;
+  const filter = filterClause(p, "s");
+
+  // Identifier pin: the resolve chain's tiers (pubid key functions).
+  const identifier = await identifierCandidates(db, q);
+
+  // Keyword lane: FTS5 prefix-AND over docid/title/abstract, bm25 order.
+  let keyword: string[] = [];
+  const match = ftsMatch(q);
+  if (match) {
+    const { results } = await db.prepare(
+      `SELECT s.key FROM documents_search_fts f JOIN documents_search s ON s.rowid = f.rowid
+       WHERE documents_search_fts MATCH ?${filter.sql}
+       ORDER BY bm25(documents_search_fts) LIMIT ${depth}`,
+    ).bind(match, ...filter.bind).all<{ key: string }>();
+    keyword = (results ?? []).map((r) => r.key);
+  }
+
+  // Trigram lane: phrase-quoted (a bare `ISO 9001:2015` reads as an FTS5
+  // column filter), substring-grade, with the match highlight.
+  const trigram: string[] = [];
+  const highlights = new Map<string, string>();
+  if (q.length >= 3) {
+    const phrase = `"${q.replaceAll('"', '""')}"`;
+    const { results } = await db.prepare(
+      // Highlights come from the display columns only (0 docid, 1 title):
+      // column 2 is the internal normalized key, never shown to a reader.
+      `SELECT s.key,
+              snippet(documents_search_trigram, 0, '<mark>', '</mark>', '…', 12) AS hl_docid,
+              snippet(documents_search_trigram, 1, '<mark>', '</mark>', '…', 12) AS hl_title
+       FROM documents_search_trigram t JOIN documents_search s ON s.rowid = t.rowid
+       WHERE documents_search_trigram MATCH ?${filter.sql}
+       ORDER BY rank LIMIT ${depth}`,
+    ).bind(phrase, ...filter.bind).all<{ key: string; hl_docid: string | null; hl_title: string | null }>();
+    for (const r of results ?? []) {
+      trigram.push(r.key);
+      const highlight = [r.hl_docid, r.hl_title].find((h) => h?.includes("<mark>"));
+      if (highlight) highlights.set(r.key, highlight);
+    }
+  }
+
+  // Semantic lane: nearest neighbours; fail-soft to the other lanes.
+  let semantic: string[] = [];
+  if (env && p.semantic !== false) {
+    const { semanticSearchV2 } = await import("./semantic");
+    semantic = (await semanticSearchV2(env, q, depth)).map((h) => h.key);
+  }
+
+  // Hydrate + filter every candidate in one pass over documents_search.
+  const candidates = [...new Set([...identifier.map((i) => i.key), ...keyword, ...trigram, ...semantic])];
+  const rows = new Map<string, HydratedRow>();
+  const hydrateFilter = filterClause(p, "documents_search");
+  for (let i = 0; i < candidates.length; i += HYDRATE_CHUNK) {
+    const chunk = candidates.slice(i, i + HYDRATE_CHUNK);
+    const { results } = await db.prepare(
+      `SELECT key, flavor, docid, title, year FROM documents_search
+       WHERE key IN (${chunk.map(() => "?").join(", ")})${hydrateFilter.sql}`,
+    ).bind(...chunk, ...hydrateFilter.bind).all<HydratedRow>();
+    for (const r of results ?? []) rows.set(r.key, r);
+  }
+  const kept = (keys: string[]) => keys.filter((k) => rows.has(k));
+
+  const fused = fuseLanes(
+    {
+      identifier: identifier.filter((i) => rows.has(i.key)),
+      keyword: kept(keyword),
+      trigram: kept(trigram),
+      semantic: kept(semantic),
+    },
+    { yearOf: (k) => rows.get(k)?.year ?? null },
+  );
+
+  const items = fused.slice(p.offset, p.offset + p.limit).map((h): RankedHit => {
+    const row = rows.get(h.key)!;
+    const hit: RankedHit = {
+      key: h.key, flavor: row.flavor, docid: row.docid, title: row.title, year: row.year,
+      score: Number(h.score.toFixed(6)), pinned: h.pinned, lanes: h.lanes,
+    };
+    const highlight = highlights.get(h.key);
+    if (highlight) hit.highlight = highlight;
+    return hit;
+  });
+
+  // Facets over the keyword match (filters excluded, the usual facet rule).
+  const textOnly = buildWhere({ q }, {}, await ftsReady(db));
+  const dims = ["flavor", "doctype", "status"];
+  const counts = await Promise.all(dims.map((dim) => facetFor(db, dim, textOnly)));
+  const facets: FacetCountsV2 = Object.fromEntries(dims.map((dim, i) => [dim, counts[i]!]));
+
+  const end = p.offset + p.limit;
+  return { items, semantic: semantic.length > 0, nextOffset: end < fused.length ? end : null, facets };
 }
 
 export async function searchDocuments(

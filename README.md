@@ -11,6 +11,7 @@ can deploy its own instance of this API — see [Deploying your own](#deploying-
 | `GET /` | Landing page with live coverage stats and a search demo |
 | `GET /v3/documents/{key}` | One document by key — `Accept: application/json` (default) / `application/relaton+xml` / `application/yaml`; strong ETag + immutable caching, `If-None-Match` → 304, HEAD; unknown keys fall back through normalized tokens (case/spacing/hyphens) |
 | `GET /v3/documents?q=&flavor=&doctype=&status=&year=&cursor=&limit=` | Key-ordered search with cursor paging (`Link: rel="next"`, `next_cursor`); RFC 9457 problem+json errors |
+| `GET /v3/search?q=&flavor=&doctype=&status=&year=&semantic=&cursor=&limit=` | Relevance-ranked hybrid search: identifier pin, then keyword (bm25) + trigram + semantic lanes fused by weighted RRF, per-lane ranks on every item — see [the rank contract](docs/search-rank-contract.md) |
 | `GET /v3/flavors`, `GET /v3/version` | Per-flavor coverage; release + model versions |
 | `GET /schema`, `GET /schema/relaton-{bib-item,ietf-item}.json` | The model JSON Schemas (draft 2020-12), served from the `relaton` npm package |
 | `GET /openapi.json`, `GET /docs` | OpenAPI 3.1 spec + Scalar UI |

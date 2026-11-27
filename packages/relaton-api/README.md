@@ -20,6 +20,8 @@ W3C, 3GPP, …).
   `/collections/{c}/entries/{key}` (+ BibTeX / RIS / CSL-JSON / JSON-LD exports).
 - **Search UI** — `/search` with facets, pubid component filters, FTS and
   optional semantic search.
+- **Ranked search API** — `GET /v3/search`: hybrid retrieval under a
+  versioned rank contract (`docs/search-rank-contract.md` at the repo root).
 
 ## Library
 

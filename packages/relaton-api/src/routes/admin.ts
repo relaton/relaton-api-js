@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env";
-import { buildIngestStatements, buildReconcileStatements, type SqlStatement } from "../lib/ingest_sql";
+import { buildIngestStatements, buildReconcileStatements, EMBED_FRESHNESS_SET, type SqlStatement } from "../lib/ingest_sql";
 import {
   deriveSearchRow,
   projectClassifications,
@@ -162,8 +162,11 @@ adminRoutes.post("/admin/build-search", async (c) => {
     "norm", "undated_norm", "allparts_norm", "publisher", "number", "part", "edition"];
   const perStmt = Math.max(1, Math.floor(BIND_CAP / columns.length));
   const rowSql = `(${columns.map(() => "?").join(", ")})`;
-  const updateSet = columns.filter((col) => col !== "key" && col !== "embedded_at" && col !== "publisher" && col !== "number" && col !== "part")
-    .map((col) => `${col} = excluded.${col}`).join(", ");
+  const updateSet = [
+    ...columns.filter((col) => col !== "key" && col !== "embedded_at" && col !== "publisher" && col !== "number" && col !== "part")
+      .map((col) => `${col} = excluded.${col}`),
+    EMBED_FRESHNESS_SET,
+  ].join(", ");
   const stmts: D1PreparedStatement[] = [];
   const tuples = rows.map((r) => {
     const s = deriveSearchRow(r.key, r.flavor, r.file, r.data);
@@ -191,6 +194,25 @@ adminRoutes.post("/admin/build-search", async (c) => {
   return c.json({
     scanned: rows.length, lastKey,
     nextCursor: rows.length === limit ? lastKey : null,
+  });
+});
+
+// Embedding coverage (issue #179): how much of the census the semantic
+// lane can reach — per flavor, rows with a current vector (embedded_at set)
+// against all rows. Read-only; the embed-search walk is what moves it.
+adminRoutes.get("/admin/embed-coverage", async (c) => {
+  if (!c.env.ADMIN_TOKEN || !tokenMatches(c.req.header("Authorization"), c.env.ADMIN_TOKEN)) {
+    return c.text("Forbidden.", 403);
+  }
+  const { results } = await c.env.DB.prepare(
+    `SELECT flavor, COUNT(*) AS total, COUNT(embedded_at) AS embedded
+     FROM documents_search GROUP BY flavor ORDER BY flavor`,
+  ).all<{ flavor: string; total: number; embedded: number }>();
+  const flavors = results ?? [];
+  return c.json({
+    total: flavors.reduce((n, f) => n + f.total, 0),
+    embedded: flavors.reduce((n, f) => n + f.embedded, 0),
+    flavors,
   });
 });
 

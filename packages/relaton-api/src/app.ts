@@ -26,6 +26,7 @@ IHO, OGC, …) with identifier parsing that matches the pubid gem.
 ## HTTP API (read-only, no auth)
 - GET /v3/documents/{key} — one record by key; Accept: application/json | application/relaton+xml | application/yaml
 - GET /v3/documents?q=…&flavor=…&doctype=…&status=…&year=…&cursor=…&limit=… — key-ordered search, Link-header paging
+- GET /v3/search?q=…&flavor=…&doctype=…&status=…&year=…&cursor=…&limit=… — relevance-ranked hybrid search (identifier pin, then keyword + trigram + semantic lanes fused; per-lane ranks in "lanes"; rank contract version in "rank_contract")
 - GET /verify?code=10.17487/RFC8446 — live DOI (CrossRef) / ISBN (OpenLibrary) resolution
 - GET /collections — browsable collections; /collections/{flavor}/entries/{key} — record pages
 - OpenAPI spec: /openapi.json — reference UI: /docs — GraphQL: /graphql — JSON Schemas: /schema

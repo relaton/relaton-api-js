@@ -7,7 +7,8 @@ import dropV1Sql from "../migrations/0010_drop_v1_tables.sql?raw";
 import trigramSql from "../migrations/0013_documents_search_trigram.sql?raw";
 import { splitSqlStatements } from "./split-sql";
 import { buildTimeline, classifyRelation, type TimelineNode } from "../src/lib/timeline";
-import { dedupeCandidates, parseComponents } from "../src/lib/resolve";
+import { dedupeCandidates } from "../src/lib/resolve";
+import { parseId } from "../src/pubid/engine";
 
 // The wave-1 surfaces (epic relaton/relaton-api-js#175): #176 resolve,
 // #177 cite, #178 timeline. Seeding follows search2.test.ts — two docs
@@ -125,14 +126,14 @@ describe("resolve ranking", () => {
     expect(deduped.map((d) => [d.key, d.match])).toEqual([["A", "exact"], ["B", "substring"]]);
   });
 
-  it("parses ISO identifiers through the node-side pubid shim", () => {
-    const { ok, parsed } = parseComponents("ISO 10303-214:2010");
-    expect(ok).toBe(true);
-    expect(parsed?.number).toContain("10303");
+  it("parses ISO identifiers through the worker @pubid/pubid grammar", () => {
+    const parsed = parseId("ISO 10303-214:2010");
+    expect(parsed.ok).toBe(true);
+    expect(parsed.ok && String(parsed.id.toHash().number)).toContain("10303");
   });
 
   it("answers parse_ok false without throwing on noise", () => {
-    expect(parseComponents("not an identifier at all !!!").ok).toBe(false);
+    expect(parseId("not an identifier at all !!!").ok).toBe(false);
   });
 });
 

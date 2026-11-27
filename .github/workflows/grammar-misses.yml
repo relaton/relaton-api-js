@@ -1,0 +1,77 @@
+# Grammar-miss report (relaton-api-js#176). Every /v3/resolve input that no
+# worker grammar parses writes one Analytics Engine datapoint (index
+# `grammar_miss`, blob1 = input, blob2 = reason, blob3 = flavor hint). This
+# job ranks them with the AE SQL API and posts the list to one tracking
+# issue - the consumer-side feed of the pubid-grammar rounds backlog
+# (relaton#604). Weekly, because a grammar round takes longer than a day and
+# a 7-day window gives stable counts; dispatch with `days` for a one-off
+# look (e.g. days=1 right after a launch).
+#
+# Secrets: CLOUDFLARE_API_TOKEN needs the "Account Analytics: Read"
+# permission (the deploy token may not carry it); CLOUDFLARE_ACCOUNT_ID.
+name: grammar-misses
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Window in days"
+        type: number
+        required: false
+        default: 7
+  schedule:
+    # Mondays, off the top of the hour.
+    - cron: "41 6 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rank the grammar misses and post them
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DAYS: ${{ inputs.days || 7 }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$DAYS" =~ ^[0-9]+$ ]] && [ "$DAYS" -ge 1 ] && [ "$DAYS" -le 90 ] || { echo "days must be 1..90"; exit 1; }
+          sql="SELECT blob1 AS input, blob2 AS reason, blob3 AS flavor, SUM(_sample_interval) AS misses
+               FROM relaton_api_requests
+               WHERE index1 = 'grammar_miss' AND timestamp > NOW() - INTERVAL '${DAYS}' DAY
+               GROUP BY input, reason, flavor
+               ORDER BY misses DESC
+               LIMIT 100
+               FORMAT JSON"
+          curl -sS --fail-with-body "https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/analytics_engine/sql" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" --data "$sql" > misses.json
+          count=$(jq '.data | length' misses.json)
+          title="grammar misses: weekly"
+          # No `|| true`: a failed lookup must fail the job, not open a
+          # duplicate tracking issue.
+          existing=$(gh issue list -R "$GITHUB_REPOSITORY" --search "\"$title\" in:title" --state open --json number --jq '.[0].number')
+          if [ "$count" -eq 0 ]; then
+            echo "No grammar misses in the last ${DAYS} days."
+            [ -n "$existing" ] && gh issue comment "$existing" -R "$GITHUB_REPOSITORY" --body "No grammar misses in the last ${DAYS} days. Run: $RUN_URL" >/dev/null || true
+            exit 0
+          fi
+          # Inputs are user text: render them inside code spans with
+          # backticks and pipes neutralized and the length capped, so the
+          # table cannot be broken and the issue cannot carry long prose.
+          table=$(jq -r '.data[] | "| `\(.input | gsub("[`|\n\r]"; " ") | .[0:120])` | \(.reason) | \(.flavor // "") | \(.misses) |"' misses.json)
+          body=$(printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+            "Top /v3/resolve inputs that no worker grammar parsed in the last ${DAYS} days (reason \`no_grammar\`: a candidate pubid-grammar round; \`engine_unavailable\`: nist/ieee/oiml, waiting on a worker-safe pubid-ts entry)." \
+            "| input | reason | flavor hint | misses |" \
+            "|---|---|---|---|" \
+            "$table" \
+            "Run: $RUN_URL - maintained by the grammar-misses workflow.")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R "$GITHUB_REPOSITORY" --body "$body" >/dev/null
+          else
+            gh issue create -R "$GITHUB_REPOSITORY" --title "$title" --body "$body" >/dev/null
+          fi

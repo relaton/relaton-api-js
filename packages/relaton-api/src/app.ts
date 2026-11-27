@@ -28,6 +28,7 @@ IHO, OGC, …) with identifier parsing that matches the pubid gem.
 - GET /v3/documents?q=…&flavor=…&doctype=…&status=…&year=…&cursor=…&limit=… — key-ordered search, Link-header paging
 - GET /v3/search?q=…&flavor=…&doctype=…&status=…&year=…&cursor=…&limit=… — relevance-ranked hybrid search (identifier pin, then keyword + trigram + semantic lanes fused; per-lane ranks in "lanes"; rank contract version in "rank_contract")
 - POST /v3/validate {"references": ["ISO 9001:2008", …]} or {"text": "one reference per line"} (+ "style" for a citation) — citation validation: per reference, parsed? resolved? current edition? superseded? correctly cited? (max 50; an undated reference is a warning that lists its editions, never resolved to one; ?format=markdown for a report table)
+- GET /v3/resolve?q=…&flavor=…&limit=… — any identifier string → pubid parse + ranked candidate record keys, one per record at its best tier (exact > lookup/slug/docid > dated > undated > subset > supplement > substring > fuzzy); candidates, never authority
 - GET /verify?code=10.17487/RFC8446 — live DOI (CrossRef) / ISBN (OpenLibrary) resolution
 - GET /collections — browsable collections; /collections/{flavor}/entries/{key} — record pages
 - OpenAPI spec: /openapi.json — reference UI: /docs — GraphQL: /graphql — JSON Schemas: /schema

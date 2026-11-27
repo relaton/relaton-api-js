@@ -11,7 +11,9 @@ W3C, 3GPP, …).
 
 - **REST v3** — `/v3/documents/{key}` (content negotiation: JSON, Relaton XML,
   YAML; strong ETags, version-stamped edge caching), `/v3/documents`
-  (key-ordered cursor paging with filters), `/v3/flavors`, `/v3/version`,
+  (key-ordered cursor paging with filters), `/v3/resolve` (identifier string
+  → pubid parse + ranked candidate keys; types `ResolveResponse` /
+  `ResolveResponseSchema`), `/v3/flavors`, `/v3/version`,
   RFC 9457 problem+json errors, OpenAPI 3.1 at `/openapi.json`.
 - **GraphQL** — model-faithful `BibliographicItem` schema at `/graphql`.
 - **MCP** — read-only server at `/mcp` (relaton_search / relaton_fetch /

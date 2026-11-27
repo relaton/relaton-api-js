@@ -10,6 +10,14 @@ import { normKey } from "../pubid/keys.ts";
 // the corpus loader, which statically imports node:fs.
 import { fromSlug } from "@pubid/pubid/dist/pubid-urn/index.js";
 import "../lib/slug_registry";
+import { parse } from "../pubid/index.ts";
+import { parseComponents, dedupeCandidates, type ResolveCandidate } from "../lib/resolve";
+import { buildTimeline, type TimelineNode } from "../lib/timeline";
+import { logEvent } from "../lib/obs";
+import { toIso690 } from "relaton/dist/iso690.js";
+import { toBibtex } from "relaton/dist/bibtex.js";
+import { toRis } from "relaton/dist/ris.js";
+import { toCslJson } from "relaton/dist/csl.js";
 
 // API v3 (TODO.api/03): the modern surface over the storage v2 loader —
 // content negotiation, RFC 9457 problem+json errors, strong ETags with
@@ -531,4 +539,212 @@ v3Routes.openapi(chainRoute, async (c) => {
       .map((n) => ({ key: n.key, docid: n.docid, year: n.year })),
   ].sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
   return c.json({ root: { key: doc.key }, chain });
+});
+
+// --- resolve (epic #175, issue #176) -------------------------------------
+// Any identifier string → parsed components + ranked canonical candidates.
+// Discovery, never authority (relaton#535): the candidates are pointers
+// into the index at their best resolution tier, not bibliographic answers.
+// A grammar miss is recorded for the pubid-grammar backlog — every
+// unparseable query here is a consumer-side grammar-round candidate
+// (the relaton#604 loop, closed from the front).
+
+const resolveRoute = createRoute({
+  method: "get",
+  path: "/v3/resolve",
+  request: {
+    query: z.object({
+      q: z.string().min(1),
+      flavor: z.string().optional(),
+    }),
+  },
+  responses: {
+    200: { description: "Parsed components and ranked candidates", content: { "application/json": { schema: z.any() } } },
+    422: { description: "Missing query", content: { "application/problem+json": { schema: z.any() } } },
+  },
+});
+
+v3Routes.openapi(resolveRoute, async (c) => {
+  const { q, flavor } = c.req.valid("query");
+  const trimmed = q.trim();
+  if (!trimmed) return problem(c, 422, "Unprocessable Content", "q is required");
+
+  const { ok, parsed } = parseComponents(trimmed, flavor);
+  const cands: ResolveCandidate[] = [];
+  const gather = async (tier: ResolveCandidate["match"], fn: Promise<StorageV2Doc | null>) => {
+    const d = await fn;
+    if (d) cands.push({ key: d.key, flavor: d.flavor, docid: "", title: null, match: tier });
+  };
+  await gather("exact", getDocument(c.env.DB, trimmed));
+  await gather("lookup", getDocumentByLookupKey(c.env.DB, normKey(trimmed)));
+  await gather("lookup", getDocumentByLookupKey(c.env.DB, normKey(trimmed).replace(/-/g, "")));
+  await gather("slug", getDocumentBySlug(c.env.DB, trimmed));
+  await gather("docid", getDocumentByDocid(c.env.DB, trimmed));
+
+  // The lanes that read the search projection directly: docid substring,
+  // then the trigram lane when the exact lanes came up sparse.
+  const like = await c.env.DB.prepare(
+    "SELECT key, flavor FROM documents_search WHERE docid LIKE ? LIMIT 10",
+  ).bind(`%${trimmed}%`).all<{ key: string; flavor: string }>();
+  for (const r of like.results ?? []) cands.push({ key: r.key, flavor: r.flavor, docid: "", title: null, match: "substring" });
+  if (cands.length < 5 && trimmed.length >= 3) {
+    // Phrase-quoted: FTS5 reads a bare `ISO 9001:2015` as a column filter
+    // and 500s. The collection route's fuzzy lane carries the same latent
+    // crash for colon'd queries — flagged for its own fix.
+    const phrase = `"${trimmed.replaceAll('"', '""')}"`;
+    const fuzzy = await c.env.DB.prepare(
+      `SELECT s.key, s.flavor FROM documents_search_trigram t
+       JOIN documents_search s ON s.rowid = t.rowid
+       WHERE documents_search_trigram MATCH ? ORDER BY rank LIMIT 10`,
+    ).bind(phrase).all<{ key: string; flavor: string }>();
+    for (const r of fuzzy.results ?? []) cands.push({ key: r.key, flavor: r.flavor, docid: "", title: null, match: "fuzzy" });
+  }
+
+  const deduped = dedupeCandidates(cands);
+  const { titleOf, primaryOf } = await pageSummaries(c.env.DB, deduped.map((d) => d.key));
+  for (const d of deduped) {
+    d.title = titleOf.get(d.key) ?? null;
+    d.docid = primaryOf.get(d.key) ?? "";
+  }
+
+  if (!ok) {
+    // Grammar-miss telemetry: the consumer-side feed into the pubid-grammar
+    // rounds. Fail-soft like every observability write.
+    logEvent("resolve_grammar_miss", { q: trimmed, flavor: flavor ?? null });
+    try {
+      (c.env as { AE?: AnalyticsEngineDataset }).AE?.writeDataPoint({
+        indexes: ["resolve_miss"],
+        blobs: [trimmed, flavor ?? ""],
+        doubles: [1],
+      });
+    } catch { /* AE absent — the structured log carries the signal */ }
+  }
+
+  return c.json({
+    input: trimmed,
+    flavor: flavor ?? null,
+    parse_ok: ok,
+    parsed: parsed ?? null,
+    candidates: deduped,
+  });
+});
+
+// --- timeline (epic #175, issue #178) -------------------------------------
+// The edition / amendment / supersedence history, derived from the stored
+// relation edges — no new data model, no ingest change. Classification and
+// ordering live in lib/timeline; this handler only resolves the documents
+// at both ends of every edge.
+
+const timelineRoute = createRoute({
+  method: "get",
+  path: "/v3/documents/{key}/timeline",
+  request: {
+    params: z.object({ key: z.string().min(1) }),
+  },
+  responses: {
+    200: { description: "Ordered events: the publication plus every stored relation edge around the document, date-ordered", content: { "application/json": { schema: z.any() } } },
+    404: { description: "Unknown key", content: { "application/problem+json": { schema: z.any() } } },
+  },
+});
+
+v3Routes.openapi(timelineRoute, async (c) => {
+  const { key } = c.req.valid("param");
+  const keyText = decodeURIComponent(key);
+  const doc = (await getDocument(c.env.DB, keyText))
+    ?? (await getDocumentByLookupKey(c.env.DB, normKey(keyText)))
+    ?? (await getDocumentByDocid(c.env.DB, keyText));
+  if (!doc) return problem(c, 404, "Not Found", `unknown key ${keyText}`);
+
+  const row = await c.env.DB.prepare(
+    "SELECT docid, year, title FROM documents_search WHERE key = ?",
+  ).bind(doc.key).first<{ docid: string; year: number | null; title: string | null }>();
+  const docid = row?.docid ?? "";
+
+  const [out, inc] = await c.env.DB.batch([
+    c.env.DB.prepare("SELECT type, target FROM relations WHERE document = ?").bind(doc.key),
+    c.env.DB.prepare("SELECT document, type FROM relations WHERE target = ?").bind(docid),
+  ]);
+  const outRel = (out?.results ?? []) as { type: string; target: string }[];
+  const incRel = (inc?.results ?? []) as { document: string; type: string }[];
+
+  const nodes = await resolveDocids(
+    c.env.DB,
+    [...outRel.map((r) => r.target), ...incRel.map((r) => r.document)],
+    [...outRel.map((r) => r.target), ...incRel.map((r) => r.document)],
+  );
+  const rootNode: TimelineNode = {
+    key: doc.key,
+    docid,
+    year: row?.year ?? null,
+    title: row?.title ?? null,
+  };
+  const events = buildTimeline(rootNode, outRel, incRel, nodes);
+  return c.json({ root: { key: doc.key }, count: events.length, events });
+});
+
+// --- cite (epic #175, issue #177) ------------------------------------------
+// Any record (by key or inline) + style → the correct citation string.
+// The rendering lives entirely in the relaton-ts renderers — the worker
+// adds no rendering logic of its own (the parity laws live there).
+
+const citeRoute = createRoute({
+  method: "post",
+  path: "/v3/cite",
+  request: {
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            key: z.string().optional(),
+            record: z.any().optional(),
+            style: z.string().optional(),
+            lang: z.string().optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: { description: "The formatted citation", content: { "application/json": { schema: z.any() } } },
+    404: { description: "Unknown key", content: { "application/problem+json": { schema: z.any() } } },
+    422: { description: "Provide key or record; unknown style", content: { "application/problem+json": { schema: z.any() } } },
+  },
+});
+
+const CITE_STYLES = new Set(["iso690", "chicago", "apa", "mla", "bibtex", "ris", "csl-json"]);
+
+v3Routes.openapi(citeRoute, async (c) => {
+  const { key, record, style: styleRaw, lang } = c.req.valid("json") as {
+    key?: string; record?: Record<string, unknown>; style?: string; lang?: string;
+  };
+  const style = styleRaw ?? "iso690";
+  if (!CITE_STYLES.has(style)) {
+    return problem(c, 422, "Unprocessable Content", `unsupported style ${style}; expected one of ${[...CITE_STYLES].join(", ")}`);
+  }
+
+  let data: Record<string, unknown> | undefined = record;
+  if (!data && key) {
+    const keyText = decodeURIComponent(key);
+    const doc = (await getDocument(c.env.DB, keyText))
+      ?? (await getDocumentByLookupKey(c.env.DB, normKey(keyText)))
+      ?? (await getDocumentByDocid(c.env.DB, keyText));
+    if (!doc) return problem(c, 404, "Not Found", `unknown key ${keyText}`);
+    data = doc.data;
+  }
+  if (!data) return problem(c, 422, "Unprocessable Content", "provide a key or an inline record");
+
+  const item = data as never;
+  let citation: string;
+  switch (style) {
+    case "bibtex": citation = toBibtex(item); break;
+    case "ris": citation = toRis(item); break;
+    case "csl-json": citation = toCslJson(item); break;
+    default: {
+      const opts: { lang?: string; style?: string } = {};
+      if (lang) opts.lang = lang;
+      if (style !== "iso690") opts.style = style;
+      citation = toIso690(item, opts);
+    }
+  }
+  return c.json({ key: key ?? null, style, lang: lang ?? null, citation });
 });

@@ -352,6 +352,10 @@ v3Routes.openapi(collectionRoute, async (c) => {
   // highlights) deduped below the exact hits, so it never pollutes them.
   let fuzzy: { key: string; flavor: string; docid: string; title: string | null; highlight: string }[] = [];
   if (q.q && q.q.length >= 3 && items.length < limit) {
+    // Phrase-quoted (wave-1 follow-up): a bare `ISO 9001:2015` reads as an
+    // FTS5 column filter and 500s the lane — the resolve endpoint already
+    // quotes its MATCH input for the same reason.
+    const phrase = `"${q.q.replaceAll('"', '""')}"`;
     const matches = await c.env.DB.prepare(
       `SELECT s.key, s.flavor, s.docid, s.title,
               snippet(documents_search_trigram, -1, '<mark>', '</mark>', '…', 12) AS highlight
@@ -359,7 +363,7 @@ v3Routes.openapi(collectionRoute, async (c) => {
        JOIN documents_search s ON s.rowid = t.rowid
        WHERE documents_search_trigram MATCH ?
        ORDER BY rank LIMIT ?`,
-    ).bind(q.q, limit * 2).all<{
+    ).bind(phrase, limit * 2).all<{
       key: string; flavor: string; docid: string; title: string; highlight: string;
     }>();
     const seen = new Set(items.map((i) => i.key));

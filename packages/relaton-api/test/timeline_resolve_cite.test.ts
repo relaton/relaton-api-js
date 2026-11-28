@@ -126,14 +126,14 @@ describe("resolve ranking", () => {
     expect(deduped.map((d) => [d.key, d.match])).toEqual([["A", "exact"], ["B", "substring"]]);
   });
 
-  it("parses ISO identifiers through the worker @pubid/pubid grammar", () => {
-    const parsed = parseId("ISO 10303-214:2010");
+  it("parses ISO identifiers through the worker @pubid/pubid grammar", async () => {
+    const parsed = await parseId("ISO 10303-214:2010");
     expect(parsed.ok).toBe(true);
     expect(parsed.ok && String(parsed.id.toHash().number)).toContain("10303");
   });
 
-  it("answers parse_ok false without throwing on noise", () => {
-    expect(parseId("not an identifier at all !!!").ok).toBe(false);
+  it("answers parse_ok false without throwing on noise", async () => {
+    expect((await parseId("not an identifier at all !!!")).ok).toBe(false);
   });
 });
 

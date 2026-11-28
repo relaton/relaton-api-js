@@ -4,32 +4,23 @@
 // import bundles into the worker. Deep imports only: the package root and
 // the flavor barrel drag node:fs (the corpus loader, the parg runtime).
 //
-// Three flavors have no worker engine: nist and ieee run the PARG wasm
-// runtime, which reads its artifacts with node:fs at import time; oiml
-// ships no flavor index outside the barrel. Ids of those flavors answer
-// `engine_unavailable` until pubid-ts ships a worker-safe entry.
+// nist and ieee run the PARG wasm engine through pubid's worker entries
+// (0.1.70): the wasm compiles at deploy (CompiledWasm rule over the
+// vendored parsanol build, MIT, Ribose) and initializes lazily on the
+// first parse of those flavors; oiml's worker engine is pure TS.
 //
 // This module never parses an identifier itself: it only routes the
 // input to the flavor grammars and reads the model the grammar returns.
 import { amcaGrammarImplementation } from "@pubid/pubid/dist/flavors/amca/index.js";
-import { ansiGrammarImplementation } from "@pubid/pubid/dist/flavors/ansi/index.js";
 import { apiGrammarImplementation } from "@pubid/pubid/dist/flavors/api/index.js";
 import { ashraeGrammarImplementation } from "@pubid/pubid/dist/flavors/ashrae/index.js";
 import { asmeGrammarImplementation } from "@pubid/pubid/dist/flavors/asme/index.js";
 import { astmGrammarImplementation } from "@pubid/pubid/dist/flavors/astm/index.js";
 import { bipmGrammarImplementation } from "@pubid/pubid/dist/flavors/bipm/index.js";
-import { bsiGrammarImplementation } from "@pubid/pubid/dist/flavors/bsi/index.js";
-import { calconnectGrammarImplementation } from "@pubid/pubid/dist/flavors/calconnect/index.js";
-import { cenCenelecGrammarImplementation } from "@pubid/pubid/dist/flavors/cen_cenelec/index.js";
 import { cieGrammarImplementation } from "@pubid/pubid/dist/flavors/cie/index.js";
-import { csaGrammarImplementation } from "@pubid/pubid/dist/flavors/csa/index.js";
-import { doiGrammarImplementation } from "@pubid/pubid/dist/flavors/doi/index.js";
 import { eascGrammarImplementation } from "@pubid/pubid/dist/flavors/easc/index.js";
 import { ecmaGrammarImplementation } from "@pubid/pubid/dist/flavors/ecma/index.js";
-import { etsiGrammarImplementation } from "@pubid/pubid/dist/flavors/etsi/index.js";
-import { evsGrammarImplementation } from "@pubid/pubid/dist/flavors/evs/index.js";
 import { gbGrammarImplementation } from "@pubid/pubid/dist/flavors/gb/index.js";
-import { gostGrammarImplementation } from "@pubid/pubid/dist/flavors/gost/index.js";
 import { ialaGrammarImplementation } from "@pubid/pubid/dist/flavors/iala/index.js";
 import { ianaGrammarImplementation } from "@pubid/pubid/dist/flavors/iana/index.js";
 import { idfGrammarImplementation } from "@pubid/pubid/dist/flavors/idf/index.js";
@@ -49,8 +40,16 @@ import { tgppGrammarImplementation } from "@pubid/pubid/dist/flavors/tgpp/index.
 import { unGrammarImplementation } from "@pubid/pubid/dist/flavors/un/index.js";
 import { w3cGrammarImplementation } from "@pubid/pubid/dist/flavors/w3c/index.js";
 import { xsfGrammarImplementation } from "@pubid/pubid/dist/flavors/xsf/index.js";
+import { nistWorkerGrammarImplementation } from "@pubid/pubid/dist/flavors/nist/worker.js";
+import { ieeeWorkerGrammarImplementation } from "@pubid/pubid/dist/flavors/ieee/worker.js";
+import { oimlWorkerGrammarImplementation } from "@pubid/pubid/dist/flavors/oiml/worker.js";
+import { initWorkerEngine } from "@pubid/pubid/dist/parg/worker.js";
 import { wrappedDocument } from "@pubid/pubid/dist/model/identifier.js";
 import { normKey } from "./keys.ts";
+// The vendored parsanol wasm (node_modules/parsanol/vendor, MIT): the
+// CompiledWasm rule compiles it at deploy; the module initializes the
+// shared parg engine on first use.
+import parsanolWasm from "./parsanol_bg.wasm";
 
 // The slice of the pubid Identifier model this module reads. The .d.ts
 // lags the runtime on render()/fromHash (same note as ingest/produce.ts).
@@ -71,31 +70,52 @@ interface GrammarImpl {
 const FACTORIES: [string, () => unknown][] = [
   ["iso", isoGrammarImplementation], ["iec", iecGrammarImplementation],
   ["ietf", ietfGrammarImplementation], ["itu", ituGrammarImplementation],
-  ["bsi", bsiGrammarImplementation], ["bipm", bipmGrammarImplementation],
+  ["bipm", bipmGrammarImplementation],
   ["jcgm", jcgmGrammarImplementation], ["jis", jisGrammarImplementation],
-  ["gost", gostGrammarImplementation], ["ogc", ogcGrammarImplementation],
+  ["ogc", ogcGrammarImplementation],
   ["w3c", w3cGrammarImplementation], ["oasis", oasisGrammarImplementation],
   ["tgpp", tgppGrammarImplementation], ["ecma", ecmaGrammarImplementation],
-  ["iana", ianaGrammarImplementation], ["etsi", etsiGrammarImplementation],
-  ["cie", cieGrammarImplementation], ["gb", gbGrammarImplementation],
+  ["iana", ianaGrammarImplementation], ["cie", cieGrammarImplementation], ["gb", gbGrammarImplementation],
   ["easc", eascGrammarImplementation], ["iala", ialaGrammarImplementation],
   ["iho", ihoGrammarImplementation], ["plateau", plateauGrammarImplementation],
   ["un", unGrammarImplementation], ["xsf", xsfGrammarImplementation],
-  ["calconnect", calconnectGrammarImplementation], ["amca", amcaGrammarImplementation],
-  ["ansi", ansiGrammarImplementation], ["api", apiGrammarImplementation],
+  ["amca", amcaGrammarImplementation],
+  ["api", apiGrammarImplementation],
   ["ashrae", ashraeGrammarImplementation], ["asme", asmeGrammarImplementation],
-  ["astm", astmGrammarImplementation], ["csa", csaGrammarImplementation],
-  ["doi", doiGrammarImplementation], ["evs", evsGrammarImplementation],
+  ["astm", astmGrammarImplementation],
   ["idf", idfGrammarImplementation], ["isbn", isbnGrammarImplementation],
-  ["cen_cenelec", cenCenelecGrammarImplementation], ["omg", omgGrammarImplementation],
+  ["omg", omgGrammarImplementation],
+  ["oiml", () => oimlWorkerGrammarImplementation()],
 ];
 
-export const NO_WORKER_ENGINE: ReadonlySet<string> = new Set(["nist", "ieee", "oiml"]);
+// The parg-backed flavors: their engines come from the wasm runtime, so
+// `engineFor` awaits the shared lazy init before the first parse. oiml's
+// worker engine is pure TS and rides the sync factories above.
+const PARG_FACTORIES: [string, () => Promise<unknown>][] = [
+  ["nist", () => nistWorkerGrammarImplementation(parsanolWasm as unknown as never)],
+  ["ieee", () => ieeeWorkerGrammarImplementation({ wasm: parsanolWasm as unknown as never })],
+];
+
+let pargEngines: Map<string, Promise<unknown>> | null = null;
+function pargEngineFor(flavor: string): Promise<unknown> | null {
+  if (!PARG_FACTORIES.some(([f]) => f === flavor)) return null;
+  if (!pargEngines) pargEngines = new Map();
+  let p = pargEngines.get(flavor);
+  if (!p) {
+    // One shared wasm init; the worker entries memoize per isolate after it.
+    p = initWorkerEngine(parsanolWasm as unknown as never).then(() => {
+      const make = PARG_FACTORIES.find(([f]) => f === flavor)![1];
+      return make();
+    });
+    pargEngines.set(flavor, p);
+  }
+  return p;
+}
 
 // The flavors /v3/resolve accepts as a `flavor` hint.
 export const RESOLVE_FLAVORS: ReadonlySet<string> = new Set([
   ...FACTORIES.map(([f]) => f),
-  ...NO_WORKER_ENGINE,
+  ...PARG_FACTORIES.map(([f]) => f),
 ]);
 
 let impls: Map<string, GrammarImpl> | null = null;
@@ -151,8 +171,10 @@ function leadingToken(key: string): string {
 //   pass 1: the render normalizes back to the input;
 //   pass 2: the render starts with the input's publisher spelling
 //           (e.g. a `/Amd.1` input whose render is `/Amd 1`).
-export function parseId(input: string, flavor?: string | null): ParseResult {
-  if (flavor && NO_WORKER_ENGINE.has(flavor)) return { ok: false, reason: "engine_unavailable" };
+// The sync slice for hot paths (page summaries): the pure-TS grammar map
+// only. Flavors without a sync engine answer no-grammar here — their
+// canonical keys come from ingest, not request-time parsing.
+export function parseIdSync(input: string, flavor?: string | null): ParseResult {
   const all = engines();
   if (flavor) {
     const impl = all.get(flavor);
@@ -163,14 +185,58 @@ export function parseId(input: string, flavor?: string | null): ParseResult {
   const lead = leadingToken(inputKey);
   let fallback: { flavor: string; id: PubidId } | null = null;
   for (const [f, impl] of all) {
-    const id = tryParse(impl, input);
-    if (!id) continue;
+    const r = accepted(f, impl);
+    if (r) return r;
+  }
+  return fallback ? { ok: true, ...(fallback as { flavor: string; id: PubidId }) } : { ok: false, reason: "no_grammar" };
+
+  function accepted(f: string, impl: GrammarImpl): { ok: true; flavor: string; id: PubidId } | null {
+    const id = tryParse(impl, input) as PubidId | null;
+    if (!id) return null;
     const key = renderKey(id);
-    if (key === null) continue;
+    if (key === null) return null;
     if (key === inputKey) return { ok: true, flavor: f, id };
     if (!fallback && lead.length >= 2 && key.startsWith(lead)) fallback = { flavor: f, id };
+    return null;
   }
-  return fallback ? { ok: true, ...fallback } : { ok: false, reason: "no_grammar" };
+}
+
+export async function parseId(input: string, flavor?: string | null): Promise<ParseResult> {
+  const all = engines();
+  if (flavor) {
+    const parg = pargEngineFor(flavor);
+    const impl = (parg ? ((await parg) as GrammarImpl | undefined) : all.get(flavor));
+    const id = impl ? tryParse(impl, input) : null;
+    return id ? { ok: true, flavor, id } : { ok: false, reason: "no_grammar" };
+  }
+  const inputKey = normKey(input);
+  const lead = leadingToken(inputKey);
+  let fallback: { flavor: string; id: PubidId } | null = null;
+  // A grammar's parse is accepted only when its own render agrees with the
+  // input (pass 1 exact, pass 2 publisher-prefix); a near miss is held as
+  // the fallback answer.
+  const accepted = (f: string, impl: GrammarImpl): { ok: true; flavor: string; id: PubidId } | null => {
+    const id = tryParse(impl, input) as PubidId | null;
+    if (!id) return null;
+    const key = renderKey(id);
+    if (key === null) return null;
+    if (key === inputKey) return { ok: true, flavor: f, id };
+    if (!fallback && lead.length >= 2 && key.startsWith(lead)) fallback = { flavor: f, id };
+    return null;
+  };
+  // The pure-TS grammars first (no wasm cost on the common ids); the parg
+  // flavors run only when none of them claimed the input.
+  for (const [f, impl] of all) {
+    const r = accepted(f, impl);
+    if (r) return r;
+  }
+  for (const [f] of PARG_FACTORIES) {
+    const impl = (await pargEngineFor(f)) as GrammarImpl | undefined;
+    if (!impl) continue;
+    const r = accepted(f, impl);
+    if (r) return r;
+  }
+  return fallback ? { ok: true, ...(fallback as { flavor: string; id: PubidId }) } : { ok: false, reason: "no_grammar" };
 }
 
 // The document a supplement or a view record wraps, to the root: the

@@ -22,6 +22,9 @@ W3C, 3GPP, …).
   optional semantic search.
 - **Ranked search API** — `GET /v3/search`: hybrid retrieval under a
   versioned rank contract (`docs/search-rank-contract.md` at the repo root).
+- **Citation validation** — `POST /v3/validate`: a draft's references (a
+  list or one-per-line text) → per-reference verdicts (parsed, resolved,
+  current edition, superseded, correctly cited), JSON or a markdown report.
 
 ## Library
 

@@ -14,7 +14,8 @@
 // Identifier work goes through the pubid path (parse, deriveKeys) and the
 // resolve lanes — there is no identifier regex here. The only text
 // handling is the line split and the list-marker strip of a bibliography.
-import { parseComponents, getDocumentBySlug, type ResolveTier } from "./resolve";
+import { getDocumentBySlug, type ResolveTier } from "./resolve";
+import { parseId } from "../pubid/engine";
 import { getDocument, getDocumentByDocid, getDocumentByLookupKey, type StorageV2Doc } from "./storage2";
 import { deriveKeys, normalizeCode, normKey } from "../pubid/keys.ts";
 import { renderCitation, type CiteStyle } from "./cite";
@@ -133,9 +134,17 @@ async function validateOne(
     return result;
   }
 
-  const parse = parseComponents(reference);
-  checks.parsed = { ok: parse.ok, canonical: parse.parsed?.canonical ?? null };
-  checks.dated = parse.ok ? parse.parsed?.year != null : null;
+  // relaton-api-js#187: the engine parse (nist/ieee now included) replaces
+  // the node-side shim parseComponents.
+  const parse = await parseId(reference);
+  let canonical: string | null = null;
+  let year: unknown = null;
+  if (parse.ok) {
+    canonical = (() => { try { return parse.id.toHuman(); } catch { return null; } })();
+    year = parse.id.toHash?.().year ?? null;
+  }
+  checks.parsed = { ok: parse.ok, canonical };
+  checks.dated = parse.ok ? year != null : null;
 
   // Undated: list the editions the Index holds (newest first) and stop.
   if (checks.dated === false) {

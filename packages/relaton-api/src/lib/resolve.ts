@@ -21,8 +21,8 @@ import { exactMatch, subsetMatch } from "@pubid/pubid/dist/model/subset-match.js
 import { normKey } from "../pubid/keys.ts";
 import {
   componentsOf,
-  NO_WORKER_ENGINE,
   parseId,
+  parseIdSync,
   rootDocument,
   undatedHuman,
   type ParseReason,
@@ -34,10 +34,6 @@ import { getDocument, getDocumentByDocid, getDocumentByLookupKey, type StorageV2
 // the corpus loader, which statically imports node:fs.
 import { fromSlug } from "@pubid/pubid/dist/pubid-urn/index.js";
 import "./slug_registry";
-// The node-side shim parse, kept only for parseComponents (validate) until
-// the engine reads nist / ieee in the worker (#187, #188).
-import { parse } from "../pubid/index.ts";
-import type { Identifier } from "../pubid/types.ts";
 import type { ResolveCandidate, ResolveResponse as ResolveResult } from "../routes/resolve_schema";
 
 export type { ResolveCandidate, ResolveResponse as ResolveResult } from "../routes/resolve_schema";
@@ -85,7 +81,7 @@ function parseRow(docid: string, flavor: string): PubidId | null {
     parseCache.set(key, hit);
     return hit;
   }
-  const parsed = parseId(docid, flavor);
+  const parsed = parseIdSync(docid, flavor);
   const id = parsed.ok ? parsed.id : null;
   parseCache.set(key, id);
   if (parseCache.size > PARSE_CACHE_MAX) parseCache.delete(parseCache.keys().next().value!);
@@ -154,23 +150,6 @@ export async function identifierCandidates(
   ];
   const docs = await Promise.all(lanes.map(([, p]) => p));
   return docs.flatMap((d, i) => (d ? [{ key: d.key, flavor: d.flavor, tier: lanes[i]![0] }] : []));
-}
-
-export interface ParsedComponents {
-  ok: boolean;
-  parsed: Identifier | null;
-}
-
-/** The shim parse validate reads (`canonical`, `year`). The resolver
- * itself parses with the worker engine (parseId). */
-export function parseComponents(q: string, flavor?: string): ParsedComponents {
-  if (!q.trim()) return { ok: false, parsed: null };
-  try {
-    const parsed = parse(q, flavor);
-    return parsed ? { ok: true, parsed } : { ok: false, parsed: null };
-  } catch {
-    return { ok: false, parsed: null };
-  }
 }
 
 async function rowsByKey(db: D1Database, keys: string[]): Promise<Map<string, Row>> {
@@ -317,7 +296,7 @@ export async function resolveId(
   input: string,
   opts: { flavor?: string | null; limit: number },
 ): Promise<ResolveResult> {
-  const parsed = parseId(input, opts.flavor);
+  const parsed = await parseId(input, opts.flavor);
   const view = parsed.ok ? safe(() => ({ hash: parsed.id.toHash(), human: parsed.id.toHuman() })) : null;
 
   const [ids, engineHits] = await Promise.all([
@@ -344,12 +323,10 @@ export async function resolveId(
   const candidates = rank(hits, opts.limit);
 
   if (!parsed.ok || !view) {
-    // engine_unavailable needs evidence, never a guess from text: the
-    // caller named such a flavor, or a record of such a flavor carries
-    // exactly this identifier (a record lookup, not a parse).
-    const inputKey = normKey(input);
-    const evidence = candidates.some((c) => NO_WORKER_ENGINE.has(c.flavor) && c.docid !== null && normKey(c.docid) === inputKey);
-    const reason: ParseReason = (!parsed.ok && parsed.reason === "engine_unavailable") || evidence ? "engine_unavailable" : "no_grammar";
+    // engine_unavailable stays in the wire contract (a wasm failure would
+    // surface there at runtime) but the grammars themselves cover every
+    // flavor since #187, so a miss is a grammar miss.
+    const reason: ParseReason = (!parsed.ok && parsed.reason === "engine_unavailable") ? "engine_unavailable" : "no_grammar";
     return { input, parse_ok: false, flavor: opts.flavor ?? null, parsed: null, canonical: null, reason, candidates };
   }
   return {

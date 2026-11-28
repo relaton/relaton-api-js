@@ -6,7 +6,7 @@ import searchV2Sql from "../migrations/0009_documents_search.sql?raw";
 import dropV1Sql from "../migrations/0010_drop_v1_tables.sql?raw";
 import trigramSql from "../migrations/0013_documents_search_trigram.sql?raw";
 import { splitSqlStatements } from "./split-sql";
-import { parseId, NO_WORKER_ENGINE } from "../src/pubid/engine";
+import { parseId } from "../src/pubid/engine";
 import { recordGrammarMiss } from "../src/lib/obs";
 import type { Env } from "../src/env";
 
@@ -112,22 +112,36 @@ async function resolve(qs: string): Promise<{ status: number; body: Resolved; ty
   return { status: res.status, type: res.headers.get("content-type"), body: await res.json<Resolved>() };
 }
 
-describe("parseId (worker-side @pubid/pubid grammars)", { timeout: 60_000 }, () => {
-  it("parses iso, itu and ietf ids in workerd", () => {
+describe("parseId (worker-side @pubid/pubid grammars)", { timeout: 120_000 }, () => {
+  it("parses iso, itu and ietf ids in workerd", async () => {
     for (const [q, flavor] of [["ISO 9001:2015", "iso"], ["ITU-T X.509", "itu"], ["RFC 8446", "ietf"]] as const) {
-      const r = parseId(q);
+      const r = await parseId(q);
       expect(r.ok, q).toBe(true);
       if (r.ok) expect(r.flavor).toBe(flavor);
     }
   });
 
-  it("reports a failed parse without throwing", () => {
-    expect(parseId("zzz nonsense")).toMatchObject({ ok: false, reason: "no_grammar" });
+  it("reports a failed parse without throwing", async () => {
+    expect(await parseId("zzz nonsense")).toMatchObject({ ok: false, reason: "no_grammar" });
   });
 
-  it("reports the flavors without a worker engine", () => {
-    expect([...NO_WORKER_ENGINE].sort()).toEqual(["ieee", "nist", "oiml"]);
-    expect(parseId("NIST SP 800-53r5", "nist")).toMatchObject({ ok: false, reason: "engine_unavailable" });
+  // relaton-api-js#187: the parg flavors run on the wasm worker entries.
+  it("parses the nist flavor through the lazy parg engine", async () => {
+    const r = await parseId("NIST SP 800-53r5", "nist");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.flavor).toBe("nist");
+  });
+
+  it("parses an ieee id through the lazy parg engine", async () => {
+    const r = await parseId("IEEE 802.3", "ieee");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.flavor).toBe("ieee");
+  });
+
+  it("parses an oiml id with the pure-TS worker engine", async () => {
+    const r = await parseId("OIML V 002", "oiml");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.flavor).toBe("oiml");
   });
 });
 
@@ -203,18 +217,17 @@ describe("GET /v3/resolve", { timeout: 60_000 }, () => {
     }
   });
 
-  it("marks a flavor without a worker engine as engine_unavailable", async () => {
+  it("parses a nist query through the lazy parg engine (#187)", async () => {
     const { body } = await resolve("q=NIST%20SP%20800-53r5&flavor=nist");
-    expect(body.parse_ok).toBe(false);
-    expect(body.reason).toBe("engine_unavailable");
-    // No engine parse, but the identity lanes still name the record.
+    expect(body.parse_ok).toBe(true);
+    expect(body.flavor).toBe("nist");
     expect(body.candidates[0]).toMatchObject({ key: "NIST SP 800-53r5", match: "exact" });
   });
 
-  it("detects engine_unavailable from the top fuzzy candidate's flavor", async () => {
+  it("parses a bare nist id once the sync grammars decline it", async () => {
     const { body } = await resolve("q=NIST%20SP%20800-53r5");
-    expect(body.parse_ok).toBe(false);
-    expect(body.reason).toBe("engine_unavailable");
+    expect(body.parse_ok).toBe(true);
+    expect(body.flavor).toBe("nist");
   });
 
   it("ranks a part of the document (subset) below its editions", async () => {
@@ -231,12 +244,12 @@ describe("GET /v3/resolve", { timeout: 60_000 }, () => {
     expect(body.candidates.map((c) => c.key)).not.toContain("RFC 1149");
   });
 
-  it("does not accept a foreign grammar's parse (IEEE id read by ASHRAE)", async () => {
+  it("accepts the ieee grammar's own parse, still rejecting ASHRAE's", async () => {
     const { body } = await resolve("q=IEEE%20802.11-2020");
-    expect(body.parse_ok).toBe(false);
-    expect(body.flavor).toBeNull();
-    // The record exists and its flavor has no worker engine.
-    expect(body.reason).toBe("engine_unavailable");
+    // #187: the ieee grammar parses it; ASHRAE's near parse is still
+    // rejected by the render-agreement gate.
+    expect(body.parse_ok).toBe(true);
+    expect(body.flavor).toBe("ieee");
     expect(body.candidates[0]).toMatchObject({ key: "IEEE 802.11-2020", match: "exact" });
   });
 
@@ -255,20 +268,29 @@ describe("GET /v3/resolve", { timeout: 60_000 }, () => {
 
   it("resolves an adoption (BS EN ISO) to its own record", async () => {
     const { body } = await resolve("q=BS%20EN%20ISO%209001%3A2015");
-    expect(body.parse_ok).toBe(true);
+    // The bsi grammar rides the shared central builder, which is
+    // node-bound in @pubid/pubid 0.1.70 (worker entries: pubid/pubid-ts
+    // — bsi/cen_cenelec/csa/gost/evs track there), so the parse is
+    // unavailable; the identity lanes still name the record.
+    expect(body.parse_ok).toBe(false);
     expect(body.candidates[0]).toMatchObject({ key: "BS EN ISO 9001:2015", match: "exact" });
   });
 
-  it("finds a record by its lookup key when no grammar parses the spelling", async () => {
+  it("parses a lowercase spelling and keeps the lookup lane's candidate (#187)", async () => {
     const { body } = await resolve("q=nist%20sp%20800-53r5");
-    expect(body.parse_ok).toBe(false);
+    // The nist grammar renders the lowercase spelling back normalized, so
+    // the parse now succeeds; the candidate tier is unchanged.
+    expect(body.parse_ok).toBe(true);
+    expect(body.canonical).toBe("NIST SP 800-53r5");
     expect(body.candidates[0]).toMatchObject({ key: "NIST SP 800-53r5", match: "lookup", score: 0.95 });
   });
 
-  it("falls back to the docid substring lane above the trigram lane", async () => {
+  it("keeps the substring lane above the trigram lane on a fragment query", async () => {
     const { body } = await resolve("q=SP%20800-5");
-    expect(body.parse_ok).toBe(false);
-    expect(body.candidates[0]).toMatchObject({ key: "NIST SP 800-53r5", match: "substring" });
+    // The nist grammar reads the fragment ("SP 800-5"); the candidate
+    // still comes from the docid substring lane.
+    expect(body.parse_ok).toBe(true);
+    expect(body.candidates[0]).toMatchObject({ key: "NIST SP 800-53r5", match: "substring", score: 0.6 });
   });
 
   it("keeps one candidate per record at its best tier", async () => {

@@ -1,6 +1,6 @@
 {
  "name": "relaton-api contract fixtures",
- "version": "2.2.0",
+ "version": "2.2.1",
  "description": "Executable contract (TODO.api/12), v3-only since the /api/v1 cutover: every fixture is a GET against a base URL, unless it names a `method` (a `body` is sent as JSON). Assertions are the stable contract surface only \u2014 status, headers, and pinned identifiers \u2014 never titles or dates, which drift with the datasets.",
  "baseUrlEnv": "RELATON_API_BASE_URL",
  "fixtures": [
@@ -151,6 +151,9 @@
      "\"parse_ok\":true",
      "ISO 9001"
     ]
+   },
+   "headers": {
+    "X-Relaton-Probe": "contract"
    }
   },
   {
@@ -162,6 +165,85 @@
     "bodyContains": [
      "\"parse_ok\":false"
     ]
+   },
+   "headers": {
+    "X-Relaton-Probe": "contract"
+   }
+  },
+  {
+   "name": "resolve: RFC 8446 parses (ietf grammar) and its record is the exact candidate",
+   "path": "/v3/resolve?q=RFC%208446",
+   "headers": {
+    "X-Relaton-Probe": "contract"
+   },
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+     "parse_ok": "true",
+     "flavor": "ietf",
+     "candidates.0.key": "RFC 8446",
+     "candidates.0.match": "exact"
+    }
+   }
+  },
+  {
+   "name": "resolve: a dated ISO id parses (iso grammar) with an exact candidate",
+   "path": "/v3/resolve?q=ISO%209001%3A2015",
+   "headers": {
+    "X-Relaton-Probe": "contract"
+   },
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+     "parse_ok": "true",
+     "flavor": "iso",
+     "canonical": "ISO 9001:2015",
+     "candidates.0.match": "exact"
+    }
+   }
+  },
+  {
+   "name": "resolve: an undated ISO id answers its editions",
+   "path": "/v3/resolve?q=ISO%209001",
+   "headers": {
+    "X-Relaton-Probe": "contract"
+   },
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+     "parse_ok": "true"
+    },
+    "bodyContains": [
+     "\"match\":\"undated\""
+    ]
+   }
+  },
+  {
+   "name": "resolve: an unparseable string answers parse_ok false",
+   "path": "/v3/resolve?q=quality%20management%20systems",
+   "headers": {
+    "X-Relaton-Probe": "contract"
+   },
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+     "parse_ok": "false"
+    }
+   }
+  },
+  {
+   "name": "resolve: a missing q is a problem+json 400",
+   "path": "/v3/resolve",
+   "headers": {
+    "X-Relaton-Probe": "contract"
+   },
+   "expect": {
+    "status": 400,
+    "contentType": "application/problem+json"
    }
   },
   {

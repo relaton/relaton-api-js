@@ -5,14 +5,15 @@ import { getDocument, getDocumentByDocid, getDocumentByLookupKey, pageSummaries,
 // Deep path: self-contained and extension-free, loadable under plain node
 // as well as the bundler (same import discipline produce.ts uses).
 import { normKey } from "../pubid/keys.ts";
-import { parse } from "../pubid/index.ts";
-import { parseComponents, dedupeCandidates, getDocumentBySlug, identifierCandidates, type ResolveCandidate } from "../lib/resolve";
+import { resolveId, getDocumentBySlug } from "../lib/resolve";
 import { buildTimeline, type TimelineNode } from "../lib/timeline";
 import { RANK_CONTRACT } from "../lib/rank";
 import { rankedSearch } from "../lib/search2";
-import { logEvent } from "../lib/obs";
+import { recordGrammarMiss } from "../lib/obs";
 import { CITE_STYLES, isCiteStyle, renderCitation } from "../lib/cite";
 import { MAX_REFERENCES, reportMarkdown, splitReferences, validateReferences } from "../lib/validate";
+import { RESOLVE_FLAVORS } from "../pubid/engine";
+import { ResolveQuerySchema, ResolveResponseSchema } from "./resolve_schema";
 
 // API v3 (TODO.api/03): the modern surface over the storage v2 loader —
 // content negotiation, RFC 9457 problem+json errors, strong ETags with
@@ -185,6 +186,49 @@ function decodeCursor(raw: string | undefined): string | null {
 function encodeCursor(key: string): string {
   return btoa(key).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
+
+const resolveRoute = createRoute({
+  method: "get",
+  path: "/v3/resolve",
+  request: { query: ResolveQuerySchema },
+  responses: {
+    200: {
+      description: "The pubid parse of `q` and its ranked candidate records - discovery aids, never an authoritative answer (relaton#535)",
+      content: { "application/json": { schema: ResolveResponseSchema } },
+    },
+    400: { description: "Missing or blank q, or an unknown flavor", content: { "application/problem+json": { schema: z.any() } } },
+  },
+});
+
+// Resolve answers change only when the index does; a short shared cache
+// absorbs repeated lookups without pinning a stale answer for long.
+const RESOLVE_CACHE = "public, max-age=300";
+const PROBE_HEADER = "x-relaton-probe";
+
+v3Routes.openapi(
+  resolveRoute,
+  async (c) => {
+    const q = c.req.valid("query");
+    if (q.flavor && !RESOLVE_FLAVORS.has(q.flavor)) {
+      return problem(c, 400, "Bad Request", `unknown flavor: ${q.flavor}`);
+    }
+    const result = await resolveId(c.env.DB, q.q, {
+      flavor: q.flavor ?? null,
+      limit: q.limit ?? 10,
+    });
+    // The contract suite's probes (hourly, fixed inputs) carry this header
+    // so they never top the grammar-miss report.
+    if (!result.parse_ok && !c.req.header(PROBE_HEADER)) {
+      recordGrammarMiss(c.env, q.q, result.reason ?? "no_grammar", q.flavor ?? null);
+    }
+    return c.json(result, 200, { "Cache-Control": RESOLVE_CACHE });
+  },
+  (result, c) => {
+    if (!result.success) {
+      return problem(c, 400, "Bad Request", result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+    }
+  },
+);
 
 v3Routes.openapi(facetsRoute, async (c) => {
   const q = c.req.valid("query");
@@ -611,86 +655,6 @@ v3Routes.openapi(searchRoute, async (c) => {
     facets: result.facets,
     next_cursor: nextCursor,
   }, 200, headers);
-});
-
-// --- resolve (epic #175, issue #176) -------------------------------------
-// Any identifier string → parsed components + ranked canonical candidates.
-// Discovery, never authority (relaton#535): the candidates are pointers
-// into the index at their best resolution tier, not bibliographic answers.
-// A grammar miss is recorded for the pubid-grammar backlog — every
-// unparseable query here is a consumer-side grammar-round candidate
-// (the relaton#604 loop, closed from the front).
-
-const resolveRoute = createRoute({
-  method: "get",
-  path: "/v3/resolve",
-  request: {
-    query: z.object({
-      q: z.string().min(1),
-      flavor: z.string().optional(),
-    }),
-  },
-  responses: {
-    200: { description: "Parsed components and ranked candidates", content: { "application/json": { schema: z.any() } } },
-    422: { description: "Missing query", content: { "application/problem+json": { schema: z.any() } } },
-  },
-});
-
-v3Routes.openapi(resolveRoute, async (c) => {
-  const { q, flavor } = c.req.valid("query");
-  const trimmed = q.trim();
-  if (!trimmed) return problem(c, 422, "Unprocessable Content", "q is required");
-
-  const { ok, parsed } = parseComponents(trimmed, flavor);
-  const cands: ResolveCandidate[] = (await identifierCandidates(c.env.DB, trimmed))
-    .map((d) => ({ key: d.key, flavor: d.flavor, docid: "", title: null, match: d.tier }));
-
-  // The lanes that read the search projection directly: docid substring,
-  // then the trigram lane when the exact lanes came up sparse.
-  const like = await c.env.DB.prepare(
-    "SELECT key, flavor FROM documents_search WHERE docid LIKE ? LIMIT 10",
-  ).bind(`%${trimmed}%`).all<{ key: string; flavor: string }>();
-  for (const r of like.results ?? []) cands.push({ key: r.key, flavor: r.flavor, docid: "", title: null, match: "substring" });
-  if (cands.length < 5 && trimmed.length >= 3) {
-    // Phrase-quoted: FTS5 reads a bare `ISO 9001:2015` as a column filter
-    // and 500s. The collection route's fuzzy lane carries the same latent
-    // crash for colon'd queries — flagged for its own fix.
-    const phrase = `"${trimmed.replaceAll('"', '""')}"`;
-    const fuzzy = await c.env.DB.prepare(
-      `SELECT s.key, s.flavor FROM documents_search_trigram t
-       JOIN documents_search s ON s.rowid = t.rowid
-       WHERE documents_search_trigram MATCH ? ORDER BY rank LIMIT 10`,
-    ).bind(phrase).all<{ key: string; flavor: string }>();
-    for (const r of fuzzy.results ?? []) cands.push({ key: r.key, flavor: r.flavor, docid: "", title: null, match: "fuzzy" });
-  }
-
-  const deduped = dedupeCandidates(cands);
-  const { titleOf, primaryOf } = await pageSummaries(c.env.DB, deduped.map((d) => d.key));
-  for (const d of deduped) {
-    d.title = titleOf.get(d.key) ?? null;
-    d.docid = primaryOf.get(d.key) ?? "";
-  }
-
-  if (!ok) {
-    // Grammar-miss telemetry: the consumer-side feed into the pubid-grammar
-    // rounds. Fail-soft like every observability write.
-    logEvent("resolve_grammar_miss", { q: trimmed, flavor: flavor ?? null });
-    try {
-      (c.env as { AE?: AnalyticsEngineDataset }).AE?.writeDataPoint({
-        indexes: ["resolve_miss"],
-        blobs: [trimmed, flavor ?? ""],
-        doubles: [1],
-      });
-    } catch { /* AE absent — the structured log carries the signal */ }
-  }
-
-  return c.json({
-    input: trimmed,
-    flavor: flavor ?? null,
-    parse_ok: ok,
-    parsed: parsed ?? null,
-    candidates: deduped,
-  });
 });
 
 // --- timeline (epic #175, issue #178) -------------------------------------

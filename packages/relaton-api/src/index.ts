@@ -25,6 +25,14 @@ export {
   undatedKey,
 } from "./pubid/keys.ts";
 export type { Identifier, Supplement } from "./pubid/types.ts";
+// GET /v3/resolve wire types, inferred from the route's zod schemas (the
+// same schemas the OpenAPI document is generated from).
+export {
+  ResolveCandidateSchema,
+  ResolveQuerySchema,
+  ResolveResponseSchema,
+} from "./routes/resolve_schema.ts";
+export type { ResolveCandidate, ResolveQuery, ResolveResponse } from "./routes/resolve_schema.ts";
 
 export interface RelatonApi {
   app: ReturnType<typeof createApp>;

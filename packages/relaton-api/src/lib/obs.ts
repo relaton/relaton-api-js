@@ -37,3 +37,26 @@ export function recordRequest(env: Env, obs: RequestObservation): void {
 export function logEvent(event: string, fields: Record<string, unknown> = {}): void {
   console.log(JSON.stringify({ event, ...fields }));
 }
+
+// Grammar-miss telemetry (relaton-api-js#176): every /v3/resolve input no
+// worker grammar reads writes one datapoint under index `grammar_miss` -
+// the consumer-side feed of the pubid-grammar rounds backlog (#604). The
+// weekly grammar-misses workflow ranks them with the AE SQL API. Blobs:
+// the input (capped), the reason, the caller's flavor hint.
+export const GRAMMAR_MISS_INPUT_MAX = 256;
+
+export function recordGrammarMiss(env: Env, input: string, reason: string, flavorHint: string | null): void {
+  const sample = input.slice(0, GRAMMAR_MISS_INPUT_MAX);
+  logEvent("grammar_miss", { input: sample, reason, flavor: flavorHint });
+  const dataset = (env as { AE?: AnalyticsEngineDataset }).AE;
+  if (!dataset) return;
+  try {
+    dataset.writeDataPoint({
+      indexes: ["grammar_miss"],
+      blobs: [sample, reason, flavorHint ?? ""],
+      doubles: [1],
+    });
+  } catch (e) {
+    console.error(JSON.stringify({ event: "ae_write_failed", route: "grammar_miss", error: String(e) }));
+  }
+}

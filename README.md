@@ -13,6 +13,7 @@ can deploy its own instance of this API — see [Deploying your own](#deploying-
 | `GET /v3/documents?q=&flavor=&doctype=&status=&year=&cursor=&limit=` | Key-ordered search with cursor paging (`Link: rel="next"`, `next_cursor`); RFC 9457 problem+json errors |
 | `GET /v3/search?q=&flavor=&doctype=&status=&year=&semantic=&cursor=&limit=` | Relevance-ranked hybrid search: identifier pin, then keyword (bm25) + trigram + semantic lanes fused by weighted RRF, per-lane ranks on every item — see [the rank contract](docs/search-rank-contract.md) |
 | `POST /v3/validate` | Citation validation (#182): `{references: [...]}` or `{text}` (one reference per line; list markers and titles after the first comma are dropped), optional `style`/`lang` → per reference `verdict` (`ok`/`warning`/`error`) with `parsed`, `resolved`, `dated`, `current`, `superseded`, `cited` checks and a `summary`; max 50 references; `?format=markdown` (or `Accept: text/markdown`) gives a report table. An undated reference is a warning that lists its editions as `alternatives` — the API never picks an edition for it |
+| `GET /v3/resolve?q=&flavor=&limit=` | Any identifier string → the `@pubid/pubid` grammar parse (`parse_ok`, `flavor`, `parsed`, `canonical`) + ranked candidate record keys, one per record at its best tier: `exact` (record key, or the same id by the pubid model) > `lookup` / `slug` / `docid` (identity lanes) > `dated` > `undated` (newest first) > `subset` (adds a part or a copublisher) > `supplement` (all confirmed by the pubid subset match) > `substring` > `fuzzy` (trigram; these two only when nothing else matched). Candidates are discovery aids, never authority. nist / ieee / oiml ids do not parse yet (`reason: engine_unavailable`; their PARG engine is not wired into the worker), but the identity lanes still find their records. Wire types: `ResolveResponse` from `@relaton/api` |
 | `GET /v3/flavors`, `GET /v3/version` | Per-flavor coverage; release + model versions |
 | `GET /schema`, `GET /schema/relaton-{bib-item,ietf-item}.json` | The model JSON Schemas (draft 2020-12), served from the `relaton` npm package |
 | `GET /openapi.json`, `GET /docs` | OpenAPI 3.1 spec + Scalar UI |
@@ -181,6 +182,23 @@ SELECT index, percentile(double_2, 50), percentile(double_2, 95), count(*)
 FROM relaton_api_requests
 WHERE _timestamp > NOW() - INTERVAL '1' DAY
 GROUP BY index ORDER BY count(*) DESC;
+```
+
+Grammar misses: every `/v3/resolve` input that no worker grammar parses
+also writes a datapoint with index `grammar_miss` (contract probes, which
+send `X-Relaton-Probe`, are skipped) (blob1 = input, capped at
+256 chars; blob2 = reason, `no_grammar` | `engine_unavailable`; blob3 = the
+`flavor` hint) and a `grammar_miss` log line. The weekly
+`.github/workflows/grammar-misses.yml` ranks them and posts the top 100 to
+the "grammar misses: weekly" issue — the pubid-grammar rounds backlog. Run
+it on demand with a `days` input. Its `CLOUDFLARE_API_TOKEN` needs the
+"Account Analytics: Read" permission. The same query by hand:
+
+```sql
+SELECT blob1 AS input, blob2 AS reason, SUM(_sample_interval) AS misses
+FROM relaton_api_requests
+WHERE index1 = 'grammar_miss' AND timestamp > NOW() - INTERVAL '7' DAY
+GROUP BY input, reason ORDER BY misses DESC LIMIT 100;
 ```
 
 Structured logs are single-line JSON (`{"event": ...}`) readable in

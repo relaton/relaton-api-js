@@ -27,6 +27,7 @@ IHO, OGC, …) with identifier parsing that matches the pubid gem.
 - GET /v3/documents/{key} — one record by key; Accept: application/json | application/relaton+xml | application/yaml
 - GET /v3/documents?q=…&flavor=…&doctype=…&status=…&year=…&cursor=…&limit=… — key-ordered search, Link-header paging
 - GET /v3/search?q=…&flavor=…&doctype=…&status=…&year=…&cursor=…&limit=… — relevance-ranked hybrid search (identifier pin, then keyword + trigram + semantic lanes fused; per-lane ranks in "lanes"; rank contract version in "rank_contract")
+- POST /v3/validate {"references": ["ISO 9001:2008", …]} or {"text": "one reference per line"} (+ "style" for a citation) — citation validation: per reference, parsed? resolved? current edition? superseded? correctly cited? (max 50; an undated reference is a warning that lists its editions, never resolved to one; ?format=markdown for a report table)
 - GET /verify?code=10.17487/RFC8446 — live DOI (CrossRef) / ISBN (OpenLibrary) resolution
 - GET /collections — browsable collections; /collections/{flavor}/entries/{key} — record pages
 - OpenAPI spec: /openapi.json — reference UI: /docs — GraphQL: /graphql — JSON Schemas: /schema
@@ -108,6 +109,8 @@ export function createApp(configInput: unknown = {}) {
   // reads stay unlimited (pure GETs over D1/R2). Absent binding = off.
   app.use("/mcp", rateLimitGuard);
   app.use("/create/preview", rateLimitGuard);
+  // Batch POST: one request fans out to up to 50 reference checks.
+  app.use("/v3/validate", rateLimitGuard);
 
   app.get("/", async (c) =>
     c.html(await renderHome(c.env.DB, c.env.API_VERSION ?? "dev", config.name), 200, {

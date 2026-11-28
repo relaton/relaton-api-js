@@ -1,7 +1,7 @@
 {
  "name": "relaton-api contract fixtures",
- "version": "2.1.1",
- "description": "Executable contract (TODO.api/12), v3-only since the /api/v1 cutover: every fixture is a GET against a base URL. Assertions are the stable contract surface only \u2014 status, headers, and pinned identifiers \u2014 never titles or dates, which drift with the datasets.",
+ "version": "2.2.0",
+ "description": "Executable contract (TODO.api/12), v3-only since the /api/v1 cutover: every fixture is a GET against a base URL, unless it names a `method` (a `body` is sent as JSON). Assertions are the stable contract surface only \u2014 status, headers, and pinned identifiers \u2014 never titles or dates, which drift with the datasets.",
  "baseUrlEnv": "RELATON_API_BASE_URL",
  "fixtures": [
   {
@@ -192,6 +192,35 @@
   {
    "name": "search: blank query is a problem+json 422",
    "path": "/v3/search?q=%20",
+   "expect": {
+    "status": 422,
+    "contentType": "application/problem+json"
+   }
+  },
+  {
+   "name": "validate: a dated reference resolves to its record",
+   "path": "/v3/validate",
+   "method": "POST",
+   "body": {
+    "references": [
+     "ISO 9001:2015"
+    ]
+   },
+   "expect": {
+    "status": 200,
+    "contentType": "application/json",
+    "json": {
+     "summary.total": "1",
+     "results.0.checks.parsed.ok": "true",
+     "results.0.checks.resolved.ok": "true"
+    }
+   }
+  },
+  {
+   "name": "validate: an empty body is a problem+json 422",
+   "path": "/v3/validate",
+   "method": "POST",
+   "body": {},
    "expect": {
     "status": 422,
     "contentType": "application/problem+json"

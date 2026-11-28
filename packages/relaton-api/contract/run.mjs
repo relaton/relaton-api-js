@@ -19,7 +19,15 @@ for (const fixture of fixtures) {
   if (only && !fixture.name.includes(only)) continue;
   const url = `${base}${fixture.path}`;
   try {
-    const res = await fetch(url, { headers: fixture.headers ?? {} });
+    // A fixture is a GET unless it names a method; a `body` is sent as JSON.
+    const init = { method: fixture.method ?? "GET", headers: { ...(fixture.headers ?? {}) } };
+    if (fixture.body !== undefined) {
+      init.body = JSON.stringify(fixture.body);
+      if (!Object.keys(init.headers).some((h) => h.toLowerCase() === "content-type")) {
+        init.headers["content-type"] = "application/json";
+      }
+    }
+    const res = await fetch(url, init);
     const problems = [];
     const want = fixture.expect ?? {};
 

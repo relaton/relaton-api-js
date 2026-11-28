@@ -11,10 +11,8 @@ import { buildTimeline, type TimelineNode } from "../lib/timeline";
 import { RANK_CONTRACT } from "../lib/rank";
 import { rankedSearch } from "../lib/search2";
 import { logEvent } from "../lib/obs";
-import { toIso690 } from "relaton/dist/iso690.js";
-import { toBibtex } from "relaton/dist/bibtex.js";
-import { toRis } from "relaton/dist/ris.js";
-import { toCslJson } from "relaton/dist/csl.js";
+import { CITE_STYLES, isCiteStyle, renderCitation } from "../lib/cite";
+import { MAX_REFERENCES, reportMarkdown, splitReferences, validateReferences } from "../lib/validate";
 
 // API v3 (TODO.api/03): the modern surface over the storage v2 loader —
 // content negotiation, RFC 9457 problem+json errors, strong ETags with
@@ -777,15 +775,13 @@ const citeRoute = createRoute({
   },
 });
 
-const CITE_STYLES = new Set(["iso690", "chicago", "apa", "mla", "bibtex", "ris", "csl-json"]);
-
 v3Routes.openapi(citeRoute, async (c) => {
   const { key, record, style: styleRaw, lang } = c.req.valid("json") as {
     key?: string; record?: Record<string, unknown>; style?: string; lang?: string;
   };
   const style = styleRaw ?? "iso690";
-  if (!CITE_STYLES.has(style)) {
-    return problem(c, 422, "Unprocessable Content", `unsupported style ${style}; expected one of ${[...CITE_STYLES].join(", ")}`);
+  if (!isCiteStyle(style)) {
+    return problem(c, 422, "Unprocessable Content", `unsupported style ${style}; expected one of ${CITE_STYLES.join(", ")}`);
   }
 
   let data: Record<string, unknown> | undefined = record;
@@ -799,18 +795,71 @@ v3Routes.openapi(citeRoute, async (c) => {
   }
   if (!data) return problem(c, 422, "Unprocessable Content", "provide a key or an inline record");
 
-  const item = data as never;
-  let citation: string;
-  switch (style) {
-    case "bibtex": citation = toBibtex(item); break;
-    case "ris": citation = toRis(item); break;
-    case "csl-json": citation = toCslJson(item); break;
-    default: {
-      const opts: { lang?: string; style?: string } = {};
-      if (lang) opts.lang = lang;
-      if (style !== "iso690") opts.style = style;
-      citation = toIso690(item, opts);
-    }
-  }
+  const citation = renderCitation(data, style, lang);
   return c.json({ key: key ?? null, style, lang: lang ?? null, citation });
+});
+
+// --- validate (epic #175, issue #182) --------------------------------------
+// A draft's references (a list, or a bibliography text with one reference
+// per line) → one verdict per reference: parsed, resolved, current,
+// superseded, correctly cited. The checks live in lib/validate.
+
+const validateRoute = createRoute({
+  method: "post",
+  path: "/v3/validate",
+  request: {
+    query: z.object({ format: z.enum(["json", "markdown"]).optional() }),
+    body: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            references: z.array(z.string()).optional(),
+            text: z.string().optional(),
+            style: z.string().optional(),
+            lang: z.string().optional(),
+          }),
+        },
+      },
+    },
+  },
+  responses: {
+    200: {
+      description: "One verdict per reference (parsed, resolved, current, superseded, cited), plus a summary",
+      content: {
+        "application/json": { schema: z.any() },
+        "text/markdown": { schema: z.string() },
+      },
+    },
+    422: { description: "No references; too many references; unknown style", content: { "application/problem+json": { schema: z.any() } } },
+  },
+});
+
+v3Routes.openapi(validateRoute, async (c) => {
+  const { references: list, text, style, lang } = c.req.valid("json") as {
+    references?: string[]; text?: string; style?: string; lang?: string;
+  };
+  const { format } = c.req.valid("query");
+  if (style !== undefined && !isCiteStyle(style)) {
+    return problem(c, 422, "Unprocessable Content", `unsupported style ${style}; expected one of ${CITE_STYLES.join(", ")}`);
+  }
+  const references = (list?.length ? list : splitReferences(text ?? ""))
+    .map((r) => r.trim())
+    .filter((r) => r.length > 0);
+  if (references.length === 0) {
+    return problem(c, 422, "Unprocessable Content", "provide references (a list) or text (one reference per line)");
+  }
+  if (references.length > MAX_REFERENCES) {
+    return problem(c, 422, "Unprocessable Content", `at most ${MAX_REFERENCES} references per request (got ${references.length})`);
+  }
+
+  const report = await validateReferences(c.env.DB, references, {
+    ...(style ? { style } : {}),
+    ...(lang ? { lang } : {}),
+  });
+  const wantsMarkdown = format === "markdown"
+    || (format === undefined && /text\/markdown/i.test(c.req.header("accept") ?? ""));
+  if (wantsMarkdown) {
+    return c.body(reportMarkdown(report), 200, { "content-type": "text/markdown; charset=utf-8" });
+  }
+  return c.json(report);
 });

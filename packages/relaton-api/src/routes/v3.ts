@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi";
 import { dump as dumpYaml } from "js-yaml";
 import type { AppEnv } from "../env";
 import { getDocument, getDocumentByDocid, getDocumentByLookupKey, pageSummaries, searchDocumentPages, type StorageV2Doc } from "../lib/storage2";
+import { IMPORT_RETRY_AFTER_SECONDS, importProblem, isImportError } from "../lib/import_status";
 // Deep path: self-contained and extension-free, loadable under plain node
 // as well as the bundler (same import discipline produce.ts uses).
 import { normKey } from "../pubid/keys.ts";
@@ -424,6 +425,38 @@ v3Routes.openapi(versionRoute, async (c) => {
   const release = c.env.API_VERSION ?? "dev";
   const relaton = (await c.env.DB.prepare(`SELECT value FROM meta WHERE key = 'relaton_version'`).first<{ value: string }>())?.value ?? "data-repos";
   return c.json({ release, relaton });
+});
+
+// --- status (relaton-api-js#190) -------------------------------------------
+// One cheap probe answers whether reads are servable: while a D1 import
+// runs, any read fails with the import marker — the same classifier the
+// error path uses, so /v3/status and a 503 tell consumers the same story.
+const statusRoute = createRoute({
+  method: "get",
+  path: "/v3/status",
+  responses: {
+    200: {
+      description: "Reads servable",
+      content: { "application/json": { schema: z.any() } },
+    },
+    503: {
+      description: "An ingest import is running; retry after the interval in Retry-After",
+      content: { "application/problem+json": { schema: z.any() } },
+    },
+  },
+});
+
+v3Routes.openapi(statusRoute, async (c) => {
+  try {
+    await c.env.DB.prepare("SELECT key FROM documents_search LIMIT 1").first();
+    return c.json({ status: "ok", service: "relaton-api", release: c.env.API_VERSION ?? "dev" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (isImportError(message)) {
+      return c.json(importProblem(), 503, { "Retry-After": String(IMPORT_RETRY_AFTER_SECONDS) });
+    }
+    throw err;
+  }
 });
 
 

@@ -10,6 +10,15 @@
 // for the pubid-grammar backlog: every unparseable query is a grammar
 // round candidate (relaton#604, consumer side).
 import type { Identifier } from "../pubid/types.ts";
+import { getDocument, getDocumentByDocid, getDocumentByLookupKey, type StorageV2Doc } from "./storage2";
+// Deep path: self-contained and extension-free (same import discipline
+// produce.ts uses).
+import { normKey } from "../pubid/keys.ts";
+// The pubid-scheme slug resolver: the flavor-type registrations (worker-safe
+// set) and the fs-free pubid-urn module. Deep import: the package root drags
+// the corpus loader, which statically imports node:fs.
+import { fromSlug } from "@pubid/pubid/dist/pubid-urn/index.js";
+import "./slug_registry";
 
 export type ResolveTier = "exact" | "lookup" | "slug" | "docid" | "substring" | "fuzzy";
 
@@ -55,3 +64,40 @@ export function dedupeCandidates(candidates: ResolveCandidate[]): ResolveCandida
 }
 
 import { parse } from "../pubid/index.ts";
+
+/** A pubid slug (`iso/9001/2015`) → the document it names, through the
+ * same chain the key route walks for a rendered identifier. */
+export async function getDocumentBySlug(db: D1Database, keyText: string): Promise<StorageV2Doc | null> {
+  if (!keyText.includes("/")) return null;
+  let render: string;
+  try {
+    render = fromSlug(keyText).render();
+  } catch {
+    return null;
+  }
+  return (await getDocument(db, render))
+    ?? (await getDocumentByLookupKey(db, normKey(render)))
+    ?? (await getDocumentByLookupKey(db, normKey(render).replace(/-/g, "")))
+    ?? (await getDocumentByDocid(db, render));
+}
+
+/** The identifier tiers of the resolve chain (exact key, normalized lookup
+ * keys, pubid slug, docid index), shared by /v3/resolve and the identifier
+ * pin of /v3/search. Every match goes through the pubid key functions —
+ * never a hand-rolled comparison. */
+export async function identifierCandidates(
+  db: D1Database,
+  q: string,
+): Promise<{ key: string; flavor: string; tier: ResolveTier }[]> {
+  const out: { key: string; flavor: string; tier: ResolveTier }[] = [];
+  const gather = async (tier: ResolveTier, fn: Promise<StorageV2Doc | null>) => {
+    const d = await fn;
+    if (d) out.push({ key: d.key, flavor: d.flavor, tier });
+  };
+  await gather("exact", getDocument(db, q));
+  await gather("lookup", getDocumentByLookupKey(db, normKey(q)));
+  await gather("lookup", getDocumentByLookupKey(db, normKey(q).replace(/-/g, "")));
+  await gather("slug", getDocumentBySlug(db, q));
+  await gather("docid", getDocumentByDocid(db, q));
+  return out;
+}

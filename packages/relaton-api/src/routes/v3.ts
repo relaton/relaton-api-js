@@ -5,14 +5,11 @@ import { getDocument, getDocumentByDocid, getDocumentByLookupKey, pageSummaries,
 // Deep path: self-contained and extension-free, loadable under plain node
 // as well as the bundler (same import discipline produce.ts uses).
 import { normKey } from "../pubid/keys.ts";
-// The pubid-scheme slug resolver: the flavor-type registrations (worker-safe
-// set) and the fs-free pubid-urn module. Deep import: the package root drags
-// the corpus loader, which statically imports node:fs.
-import { fromSlug } from "@pubid/pubid/dist/pubid-urn/index.js";
-import "../lib/slug_registry";
 import { parse } from "../pubid/index.ts";
-import { parseComponents, dedupeCandidates, type ResolveCandidate } from "../lib/resolve";
+import { parseComponents, dedupeCandidates, getDocumentBySlug, identifierCandidates, type ResolveCandidate } from "../lib/resolve";
 import { buildTimeline, type TimelineNode } from "../lib/timeline";
+import { RANK_CONTRACT } from "../lib/rank";
+import { rankedSearch } from "../lib/search2";
 import { logEvent } from "../lib/obs";
 import { toIso690 } from "relaton/dist/iso690.js";
 import { toBibtex } from "relaton/dist/bibtex.js";
@@ -74,20 +71,7 @@ function yamlOf(data: Record<string, unknown>): string {
 // to the identifier structurally (engine-free), and the identifier's
 // canonical render runs the standard resolution chain. A slug of an
 // unregistered flavor (nist, ieee — see slug_registry) answers null like
-// any other miss.
-async function getDocumentBySlug(db: D1Database, keyText: string): Promise<StorageV2Doc | null> {
-  if (!keyText.includes("/")) return null;
-  let render: string;
-  try {
-    render = fromSlug(keyText).render();
-  } catch {
-    return null;
-  }
-  return (await getDocument(db, render))
-    ?? (await getDocumentByLookupKey(db, normKey(render)))
-    ?? (await getDocumentByLookupKey(db, normKey(render).replace(/-/g, "")))
-    ?? (await getDocumentByDocid(db, render));
-}
+// any other miss. The resolver lives in lib/resolve (getDocumentBySlug).
 
 const keyRoute = createRoute({
   method: "get",
@@ -545,6 +529,92 @@ v3Routes.openapi(chainRoute, async (c) => {
   return c.json({ root: { key: doc.key }, chain });
 });
 
+// --- ranked search (epic #175, issue #179) -------------------------------
+// Hybrid retrieval under the published rank contract
+// (docs/search-rank-contract.md, lib/rank): the identifier pin, then a
+// weighted reciprocal-rank fusion of the keyword (FTS5 bm25), trigram and
+// semantic (Vectorize) lanes. /v3/documents stays the key-ordered listing;
+// this is the relevance-ordered surface. Each item carries its rank per
+// lane, so the order explains itself.
+
+const searchRoute = createRoute({
+  method: "get",
+  path: "/v3/search",
+  request: {
+    query: z.object({
+      q: z.string().min(1),
+      flavor: z.string().optional(),
+      doctype: z.string().optional(),
+      status: z.string().optional(),
+      year: z.coerce.number().int().optional(),
+      limit: z.coerce.number().int().min(1).max(100).optional(),
+      cursor: z.string().optional(),
+      semantic: z.enum(["0", "1", "false", "true"]).optional(),
+    }),
+  },
+  responses: {
+    200: {
+      description: `Relevance-ranked documents under rank contract ${RANK_CONTRACT.version}, with per-lane ranks, a Link header while the ranked window has more`,
+      content: { "application/json": { schema: z.any() } },
+    },
+    422: { description: "Blank query or malformed cursor", content: { "application/problem+json": { schema: z.any() } } },
+  },
+});
+
+// The cursor is an offset inside the ranked window, tagged with the
+// contract version: a cursor minted under another contract is refused
+// rather than paging a differently-ordered list.
+function encodeSearchCursor(offset: number): string {
+  return encodeCursor(`${RANK_CONTRACT.version}:${offset}`);
+}
+
+function decodeSearchCursor(raw: string | undefined): number | null | undefined {
+  if (!raw) return 0;
+  const text = decodeCursor(raw);
+  const m = typeof text === "string" ? /^(\d+\.\d+\.\d+):(\d+)$/.exec(text) : null;
+  if (!m || m[1] !== RANK_CONTRACT.version) return undefined;
+  const offset = Number(m[2]);
+  return offset < RANK_CONTRACT.window ? offset : null;
+}
+
+v3Routes.openapi(searchRoute, async (c) => {
+  const q = c.req.valid("query");
+  const text = q.q.trim();
+  if (!text) return problem(c, 422, "Unprocessable Content", "q is required");
+  const offset = decodeSearchCursor(q.cursor);
+  if (offset === undefined) {
+    return problem(c, 422, "Unprocessable Content", "cursor is not a valid token for this rank contract");
+  }
+  const limit = q.limit ?? 25;
+  const bindings = c.env as unknown as { AI?: Ai; VECTORIZE?: VectorizeIndex };
+  const semanticEnv = bindings.AI && bindings.VECTORIZE ? { AI: bindings.AI, VECTORIZE: bindings.VECTORIZE } : undefined;
+
+  const result = offset === null
+    ? { items: [], semantic: false, nextOffset: null, facets: {} }
+    : await rankedSearch(c.env.DB, semanticEnv, {
+      q: text, flavor: q.flavor, doctype: q.doctype, status: q.status, year: q.year ?? null,
+      semantic: q.semantic === undefined ? true : q.semantic === "1" || q.semantic === "true",
+      limit, offset,
+    });
+
+  const nextCursor = result.nextOffset === null ? null : encodeSearchCursor(result.nextOffset);
+  const headers: Record<string, string> = {};
+  if (nextCursor) {
+    const next = new URL(c.req.url);
+    next.searchParams.set("cursor", nextCursor);
+    next.searchParams.set("limit", String(limit));
+    headers.Link = `<${next.pathname}${next.search}>; rel="next"`;
+  }
+  return c.json({
+    rank_contract: RANK_CONTRACT.version,
+    q: text,
+    semantic: result.semantic,
+    items: result.items.map((h) => ({ ...h, api: `/v3/documents/${encodeURIComponent(h.key)}` })),
+    facets: result.facets,
+    next_cursor: nextCursor,
+  }, 200, headers);
+});
+
 // --- resolve (epic #175, issue #176) -------------------------------------
 // Any identifier string → parsed components + ranked canonical candidates.
 // Discovery, never authority (relaton#535): the candidates are pointers
@@ -574,16 +644,8 @@ v3Routes.openapi(resolveRoute, async (c) => {
   if (!trimmed) return problem(c, 422, "Unprocessable Content", "q is required");
 
   const { ok, parsed } = parseComponents(trimmed, flavor);
-  const cands: ResolveCandidate[] = [];
-  const gather = async (tier: ResolveCandidate["match"], fn: Promise<StorageV2Doc | null>) => {
-    const d = await fn;
-    if (d) cands.push({ key: d.key, flavor: d.flavor, docid: "", title: null, match: tier });
-  };
-  await gather("exact", getDocument(c.env.DB, trimmed));
-  await gather("lookup", getDocumentByLookupKey(c.env.DB, normKey(trimmed)));
-  await gather("lookup", getDocumentByLookupKey(c.env.DB, normKey(trimmed).replace(/-/g, "")));
-  await gather("slug", getDocumentBySlug(c.env.DB, trimmed));
-  await gather("docid", getDocumentByDocid(c.env.DB, trimmed));
+  const cands: ResolveCandidate[] = (await identifierCandidates(c.env.DB, trimmed))
+    .map((d) => ({ key: d.key, flavor: d.flavor, docid: "", title: null, match: d.tier }));
 
   // The lanes that read the search projection directly: docid substring,
   // then the trigram lane when the exact lanes came up sparse.

@@ -1,0 +1,16 @@
+{
+  "rank_contract": "1.0.0",
+  "description": "Rank-contract evaluation set (issue #179). Each case names the keys that must appear in the top k of the ranked search over the corpus in test/search_corpus.ts. Mode 'any' must pass keyword-only and hybrid; mode 'hybrid' needs the semantic lane, and keyword_misses asserts that the keyword-only run does not find it.",
+  "cases": [
+    { "q": "ISO 9001:2015", "k": 1, "expect": ["ISO 9001:2015"], "mode": "any" },
+    { "q": "RFC 8446", "k": 1, "expect": ["RFC 8446"], "mode": "any" },
+    { "q": "ISO 9001", "k": 2, "expect": ["ISO 9001:2015", "ISO 9001:2008"], "mode": "any" },
+    { "q": "quality management", "k": 5, "expect": ["ISO 9001:2015", "ISO 9001:2008", "ISO 9000:2015", "ISO/TR 10013:2021"], "mode": "any" },
+    { "q": "transport layer security", "k": 2, "expect": ["RFC 8446", "RFC 5246"], "mode": "any" },
+    { "q": "metadata", "k": 1, "expect": ["ISO 19115-1:2014"], "mode": "any" },
+    { "q": "HTTP", "k": 1, "expect": ["RFC 9110"], "mode": "any" },
+    { "q": "9001:20", "k": 2, "expect": ["ISO 9001:2015", "ISO 9001:2008"], "mode": "any" },
+    { "q": "encryption", "k": 3, "expect": ["ISO/IEC 18033-3:2010"], "mode": "hybrid", "keyword_misses": true },
+    { "q": "geospatial metadata", "k": 1, "expect": ["ISO 19115-1:2014"], "mode": "hybrid", "keyword_misses": true }
+  ]
+}

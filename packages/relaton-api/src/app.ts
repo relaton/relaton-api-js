@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { cors } from "hono/cors";
 import { parseConfig, type RelatonApiConfig } from "./config";
 import type { AppEnv } from "./env";
+import { IMPORT_RETRY_AFTER_SECONDS, importProblem, isImportError } from "./lib/import_status";
 import { adminRoutes } from "./routes/admin";
 import { v3Routes } from "./routes/v3";
 import { schemaRoutes } from "./routes/schema";
@@ -175,6 +176,14 @@ export function createApp(configInput: unknown = {}) {
   // Surface the actual error so debugging doesn't require tail.
   app.onError((err, c) => {
     console.error(`Unhandled error on ${c.req.method} ${c.req.path}:`, err);
+    // relaton-api-js#190: a D1 import 500s every read for the import
+    // window; answer 503 + Retry-After so consumers back off instead of
+    // reading it as an outage.
+    if (isImportError(err.message)) {
+      return c.json(importProblem(), 503, {
+        "Retry-After": String(IMPORT_RETRY_AFTER_SECONDS),
+      });
+    }
     return c.text(`Internal server error: ${err.message}`, 500);
   });
 
